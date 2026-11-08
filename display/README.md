@@ -1,0 +1,52 @@
+# Display: Matrix Portal + 64×32 LED panel
+
+The Matrix Portal polls the antenna Pi's `/display.json` every 3 s and draws it. All the
+deciding (which aircraft, alerts, brightness, clock) happens on the Pi, because the Portal
+can't be reached remotely once it's at Dad's.
+
+## One-time setup (week 2)
+
+1. **Install CircuitPython 9.x** on the Matrix Portal M4: download the UF2 from
+   circuitpython.org (board: "Matrix Portal M4"), double-tap the reset button, drag the UF2
+   onto the `MATRIXBOOT` drive. It reappears as `CIRCUITPY`. Use a USB-C **data** cable.
+2. **Update the ESP32 Wi-Fi firmware** if it's old (Adafruit's "Upgrade Airlift firmware" guide).
+   Recent NINA firmware is more reliable at reconnecting.
+3. **Libraries:** from the CircuitPython 9.x library bundle, copy these into `CIRCUITPY/lib/`:
+   - `adafruit_matrixportal/`
+   - `adafruit_esp32spi/`
+   - `adafruit_requests.mpy`, `adafruit_connection_manager.mpy`
+   - `adafruit_display_text/`, `adafruit_bitmap_font/`, `adafruit_imageload/`
+   - `adafruit_portalbase/`, `neopixel.mpy`, `adafruit_bus_device/` (needed by matrixportal)
+
+   Or with circup on your laptop: `pip install circup && circup install adafruit_matrixportal adafruit_esp32spi adafruit_requests adafruit_connection_manager adafruit_display_text adafruit_bitmap_font adafruit_imageload`
+4. **Font:** the layout is designed for the 3×5-pixel `tom-thumb.bdf` font. Get it from the
+   `examples/fonts/` folder of Adafruit's Adafruit_CircuitPython_Bitmap_Font repo on GitHub
+   (or any Adafruit Learn guide that uses it) and copy it to `CIRCUITPY/fonts/tom-thumb.bdf`.
+   Without it the code falls back to the built-in font, which is too big for the layout.
+5. Copy `code.py` and the `logos/` folder to `CIRCUITPY/`.
+6. Copy `settings.toml.example` to `CIRCUITPY/settings.toml` and fill in Wi-Fi and the Pi's address.
+
+The panel shows `WIFI...`, then the flight or idle screen. `NO DATA / IS THE PI ON?` means
+Wi-Fi is fine but the Pi didn't answer: check `curl http://<pi-ip>:8080/display.json`.
+Serial console (`screen /dev/tty.usbmodem* 115200`, or Mu / Thonny) shows the errors.
+
+## Screens
+
+| Mode | Layout |
+|---|---|
+| flight | 16×16 logo · callsign (airline colour) · route · type / altitude + speed / heading + distance |
+| alert | banner (flashing red for 7700/7600/7500, navy with red stripes for military/Red Arrows, flashing yellow "LOOK UP!" for low and close) above the aircraft details |
+| idle | clock · temperature and weather · date · scrolling "last seen" · today's count and furthest |
+
+Use the Pi's test mode to see each one: `curl "http://<pi-ip>:8080/test?scenario=military"`.
+
+## Logos
+
+Put 16×16 indexed BMPs in `logos/`, named by ICAO airline prefix (`EZY.bmp`, `RYR.bmp`, `BAW.bmp`…).
+Make one from any image with `python3 tools/make_logo.py some-logo.png EZY`. Aircraft without a logo
+get a plane icon tinted in the airline's colour (colours are set on the Pi in `refdata.py`).
+
+## Brightness
+
+Sent by the Pi from the schedule in `antenna/config.toml`. At 0 the panel goes dark. Set the levels
+in an evening-lit room; a mostly dark layout also keeps the 3 A USB-C supply comfortable.
