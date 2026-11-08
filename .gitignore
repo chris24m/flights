@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+display/settings.toml
+.DS_Store

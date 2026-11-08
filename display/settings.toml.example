@@ -1,0 +1,12 @@
+# Copy to the CIRCUITPY drive as settings.toml and fill in.
+# Up to three Wi-Fi networks, tried in order: yours for testing, Dad's for Christmas.
+WIFI_SSID_1 = "your-wifi"
+WIFI_PASSWORD_1 = "your-password"
+WIFI_SSID_2 = "dads-wifi"
+WIFI_PASSWORD_2 = "dads-password"
+
+# Where the antenna Pi serves the display feed. Comma-separated; the first that answers wins,
+# so list the Pi's reserved IP on your network and on Dad's.
+DISPLAY_URLS = "http://192.168.1.50:8080/display.json,http://192.168.0.50:8080/display.json"
+
+POLL_SECONDS = 3

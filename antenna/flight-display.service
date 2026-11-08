@@ -1,0 +1,15 @@
+[Unit]
+Description=Flight display service (serves /display.json for the LED panel)
+After=network-online.target readsb.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__DIR__
+ExecStart=/usr/bin/python3 -m flightdisplay --config __DIR__/config.toml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
