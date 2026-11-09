@@ -32,9 +32,10 @@ rare_banner = true       # gold "RARE!" banner for Spitfires, Lancasters, 747s..
 potd = true              # quiet sky: show a plane-of-the-day facts card now and then
 potd_every_min = 10
 potd_show_s = 20
-# Screen-change animation: random / flyby / flap / radar / slide / dissolve / none
-# flyby = a top-down plane flies across the way the aircraft is heading (random mixes them all).
-transition = "random"
+# Screen-change animations: one of these is picked at random each time. [] = instant.
+# flyby = a top-down plane flies across the way the aircraft is heading; radar = green sweep;
+# slide = board scroll in a random direction; dissolve = sparkle; flap = split-flap letters.
+transitions = ["flyby", "radar", "slide", "dissolve", "flap"]
 
 [settings]
 # Optional PIN for saving on the settings page (stops visitors at Dad's fiddling). Empty = no PIN.

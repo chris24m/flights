@@ -41,9 +41,12 @@ POLL_SECONDS = float(os.getenv("POLL_SECONDS") or 3)
 DEBUG = int(os.getenv("DEBUG") or 0)
 # Departure-board "flap" animation when the screen changes (new aircraft, clock <-> flight). 0 = off.
 FLAP = int(os.getenv("FLAP") if os.getenv("FLAP") is not None else 1)
-# Screen-change animation until the Pi says otherwise (its settings page has the same choice):
-# random / flyby / flap / radar / slide / dissolve / none
-TRANSITION = os.getenv("TRANSITION") or ("random" if FLAP else "none")
+# Screen-change animations to pick from at random, until the Pi says otherwise (ticked on its
+# settings page): any of flyby, radar, slide, dissolve, flap. Empty = instant.
+ALL_TRANSITIONS = ("flyby", "radar", "slide", "dissolve", "flap")
+_t = os.getenv("TRANSITIONS")
+TRANSITIONS = [x.strip() for x in _t.split(",") if x.strip()] if _t is not None else \
+    (list(ALL_TRANSITIONS) if FLAP else [])
 # If the transitions show odd colours on the real panel, set SNAP_SWAPPED = 1 (byte order of the snapshot).
 SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 VERSION = "2026.11.09"
@@ -586,16 +589,11 @@ def run_dissolve():
 OVERLAY_KINDS = ("flyby", "radar", "slide", "dissolve")
 
 
-def choose_transition(setting, has_plane):
-    if setting == "random":
-        pool = ["flyby", "flyby", "flap", "radar", "slide", "dissolve"] if has_plane else \
-            ["flap", "radar", "slide", "dissolve"]
-        return random.choice(pool)
-    if setting == "flyby" and not has_plane:
-        return "flap"  # nothing to fly: e.g. clock -> plane of the day
-    if setting == "page":
-        setting = "radar"  # page turn was replaced by the radar sweep
-    return setting if setting in OVERLAY_KINDS + ("flap", "none") else "flap"
+def choose_transition(ticked, has_plane):
+    """One of the ticked animations at random. The fly-by needs a plane (not e.g. clock -> plane of
+    the day); if it was the only one ticked, use the flap then."""
+    pool = [k for k in ticked if k in ALL_TRANSITIONS and (has_plane or k != "flyby")]
+    return random.choice(pool) if pool else "flap"
 
 
 def run_transition(kind, group, plane):
@@ -694,25 +692,25 @@ def plane_of(d):
 
 
 def draw(d, now):
-    global brightness, animate_now, last_scene, last_plane, FLAP, TRANSITION
+    global brightness, animate_now, last_scene, last_plane, FLAP, TRANSITIONS
     alert = d.get("alert") or {}
     scene = (d.get("mode"), d.get("callsign"), alert.get("text"))
     prev, last_scene = last_scene, scene
     brightness = float(d.get("brightness", 0.5))
-    if "transition" in d:  # the Pi's settings page chooses the animation
-        TRANSITION = d["transition"] or "none"
+    if isinstance(d.get("transitions"), list):  # ticked on the Pi's settings page
+        TRANSITIONS = d["transitions"]
     elif "flap" in d:  # older Pi code: flap on/off only
-        TRANSITION = "flap" if d["flap"] else "none"
-    FLAP = 0 if TRANSITION == "none" else 1
+        TRANSITIONS = ["flap"] if d["flap"] else []
+    FLAP = 1 if TRANSITIONS else 0
     root.hidden = brightness <= 0
 
     kind, plane = None, plane_of(d)
-    if scene != prev and prev is not None and not root.hidden and TRANSITION != "none":
+    if scene != prev and prev is not None and not root.hidden and TRANSITIONS:
         if prev[1] and prev[1] == scene[1]:
             kind = "flap"  # same aircraft, flight details <-> facts card: keep it calm
         else:
             plane = plane or last_plane  # arriving plane flies in; a departing one flies off
-            kind = choose_transition(TRANSITION, plane is not None)
+            kind = choose_transition(TRANSITIONS, plane is not None)
         if kind in OVERLAY_KINDS:
             if take_snapshot():
                 overlay_g.hidden = False  # the old screen stays up (frozen) while we redraw underneath

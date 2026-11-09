@@ -147,8 +147,8 @@ class Service:
             "status": "ok" if self.receiver_ok else "receiver offline",
         }
         feat = self.cfg.get("features", {})
-        common["transition"] = feat.get("transition", "random")
-        common["flap"] = common["transition"] != "none"  # for older Portal code
+        common["transitions"] = list(feat.get("transitions", []))
+        common["flap"] = bool(common["transitions"])  # for older Portal code
         if pick.mode == "idle":
             potd = self.potd_card(now, feat)
             if potd:

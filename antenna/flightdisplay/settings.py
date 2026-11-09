@@ -23,8 +23,9 @@ FIELDS = [
     ("features", "potd", "Plane of the day when the sky is quiet", "bool", None),
     ("features", "potd_every_min", "Plane of the day every (minutes)", "int", (1, 240)),
     ("features", "potd_show_s", "Plane of the day stays up for (seconds)", "int", (5, 120)),
-    ("features", "transition", "Screen change animation", "choice",
-     ("random", "flyby", "flap", "radar", "slide", "dissolve", "none")),
+    ("features", "transitions", "Screen change animations (one picked at random each time; none = instant)",
+     "multi", (("flyby", "Plane fly-by"), ("radar", "Radar sweep"), ("slide", "Board scroll"),
+               ("dissolve", "Sparkle"), ("flap", "Split-flap letters"))),
     ("display", "radius_km", "Overhead radius (miles)", "miles", (0.5, 50)),
     ("display", "units", "Show distances in", "choice", ("mi", "km")),
     ("alerts", "military_radius_km", "Military / rare alert radius (miles)", "miles", (1, 100)),
@@ -32,14 +33,15 @@ FIELDS = [
 ]
 
 FEATURE_DEFAULTS = {"facts_page": True, "facts_every_s": 8, "rare_banner": True, "potd": True,
-                    "potd_every_min": 10, "potd_show_s": 20, "transition": "random"}
+                    "potd_every_min": 10, "potd_show_s": 20,
+                    "transitions": ["flyby", "radar", "slide", "dissolve", "flap"]}
 
 
 class Settings:
     def __init__(self, cfg, state_dir):
         cfg.setdefault("features", {})
-        if cfg["features"].get("flap") is False and "transition" not in cfg["features"]:
-            cfg["features"]["transition"] = "none"  # older config.toml with flap = false
+        if cfg["features"].get("flap") is False and "transitions" not in cfg["features"]:
+            cfg["features"]["transitions"] = []  # older config.toml with flap = false
         for k, v in FEATURE_DEFAULTS.items():
             cfg["features"].setdefault(k, v)
         cfg["display"].setdefault("units", "mi")
@@ -88,6 +90,9 @@ class Settings:
             try:
                 if kind == "bool":
                     value = "1" in form.get(name, [])  # hidden "0" + checkbox "1" when ticked
+                elif kind == "multi":
+                    ticked = form.get(name, [])  # hidden "" + one value per ticked box
+                    value = [o for o, _ in opt if o in ticked]
                 elif kind in ("int", "float", "miles"):
                     num = float(raw)
                     lo, hi = opt
@@ -153,6 +158,12 @@ class Settings:
                 inp = (f'<input type="hidden" name="{name}" value="0">'
                        f'<input type="checkbox" name="{name}" value="1"{" checked" if value else ""}>')
                 rows.append(f'<label class="row check">{inp}<span>{html.escape(label)}{tag}</span></label>')
+            elif kind == "multi":
+                boxes = "".join(f'<label class="sched"><input type="checkbox" name="{name}" value="{o}"'
+                                f'{" checked" if o in (value or []) else ""}><span>{html.escape(t)}</span></label>'
+                                for o, t in opt)
+                rows.append(f'<div class="row block"><span>{html.escape(label)}{tag}</span>'
+                            f'<input type="hidden" name="{name}" value="">{boxes}</div>')
             elif kind in ("int", "float", "miles"):
                 shown = round(value / KM_PER_MILE, 1) if kind == "miles" else value
                 step = "1" if kind == "int" else "0.5"

@@ -44,7 +44,8 @@ Use the Pi's test mode to see each one: `curl "http://<pi-ip>:8080/test?scenario
 
 ## Transitions
 
-When the screen changes, one of these plays (chosen on the Pi's settings page; `random` mixes them):
+When the screen changes, one of these plays, picked at random from the ones ticked on the Pi's
+settings page (none ticked = instant):
 
 | Name | What it does |
 |---|---|
@@ -53,7 +54,6 @@ When the screen changes, one of these plays (chosen on the Pi's settings page; `
 | slide | departure-board scroll in a random direction (up, down, left or right) |
 | dissolve | sparkle from one screen to the other |
 | flap | split-flap letters (also used between a plane's details and its facts card, whatever the setting) |
-| none | instant |
 
 The fly-by, radar, slide and dissolve work by copying the panel's current picture into a full-screen
 bitmap and eating it away. If the panel ever shows them in odd colours, add `SNAP_SWAPPED = 1` to

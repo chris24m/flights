@@ -15,8 +15,8 @@ POLL_SECONDS = 3
 # 2 = also replace the flight screen with a diagnostics screen (Wi-Fi, IPs, Pi status, last error).
 DEBUG = 0
 
-# Animation when the screen changes, until the Pi says otherwise (choose it on the Pi's settings page):
-# random / flyby / flap / radar / slide / dissolve / none
-TRANSITION = "random"
+# Animations when the screen changes, one picked at random each time, until the Pi says otherwise
+# (tick them on the Pi's settings page). "" = instant.
+TRANSITIONS = "flyby,radar,slide,dissolve,flap"
 # Only if the fly-by / radar / slide / dissolve animations show wrong colours on the panel:
 # SNAP_SWAPPED = 1
