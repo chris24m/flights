@@ -706,7 +706,7 @@ def draw(d, now):
 
     kind, plane = None, plane_of(d)
     if scene != prev and prev is not None and not root.hidden and TRANSITIONS:
-        if prev[1] and prev[1] == scene[1]:
+        if prev[1] and prev[1] == scene[1] and not d.get("demo"):
             kind = "flap"  # same aircraft, flight details <-> facts card: keep it calm
         else:
             plane = plane or last_plane  # arriving plane flies in; a departing one flies off
