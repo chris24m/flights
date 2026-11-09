@@ -349,7 +349,10 @@ def draw(d, now):
         set_text(i_wx, wx[1] if len(wx) > 1 else "")
         set_text(i_date, d.get("date"))
         set_text(i_last, d.get("last") or "WAITING FOR AIRCRAFT")
-        set_text(i_stats, "%s TODAY %sKM" % (d.get("today", 0), d.get("furthest_km", 0)))  # fits 16 chars
+        if int(now / 5) % 2:  # alternate every 5 s
+            set_text(i_stats, "%s PLANES TODAY" % d.get("today", 0))
+        else:
+            set_text(i_stats, "FURTHEST %sKM" % d.get("furthest_km", 0))
         show_only(idle_g)
 
 
