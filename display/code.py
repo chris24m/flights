@@ -745,7 +745,10 @@ def draw(d, now):
         banner_pal[0] = dim(bg) if on else 0
         stripe_top_pal[0] = stripe_bot_pal[0] = dim(stripe) if on else 0
         set_text(a_banner, alert.get("text", "ALERT"), fg if on else bg)
-        set_text(a_cs, ("%s %s" % (d.get("callsign") or "", d.get("type") or "")).strip())
+        cs_type = ("%s %s" % (d.get("callsign") or "", d.get("type") or "")).strip()
+        if len(cs_type) > 16:  # one line across the panel: fall back to the short code (B738)
+            cs_type = ("%s %s" % (d.get("callsign") or "", d.get("type_code") or "")).strip()
+        set_text(a_cs, cs_type)
         set_text(a_route, d.get("route"))
         set_text(a_altspd, fmt_altspd(d))
         set_text(a_hdg, fmt_hdg(d))
