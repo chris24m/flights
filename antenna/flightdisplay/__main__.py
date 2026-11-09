@@ -19,7 +19,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from .facts import FACTS, card, sprite_for
+from .facts import FACTS, card, panel_type, sprite_for
 from .settings import Settings
 from .extras import SCENARIOS, Stats, TestMode, Weather, brightness_at, today_str
 from .lookups import Lookups
@@ -116,7 +116,8 @@ class Service:
             "airline_name": airline_name,
             "col": colour,
             "route": route or "",
-            "type": ac_type or "",
+            "type": panel_type(ac_type),     # 737-800
+            "type_code": ac_type or "",      # B738
             "alt": ac.alt,
             "spd": round(ac.gs) if ac.gs is not None else None,
             "trk": round(ac.track) if ac.track is not None else None,

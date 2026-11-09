@@ -106,3 +106,31 @@ for _t in ("EC35", "EC45", "A109", "A169", "A189", "S92", "H47", "AS65", "EC30",
 
 def sprite_for(type_code):
     return SPRITE.get((type_code or "").upper(), "twin")
+
+
+# Name for the type line on the flight screen (11 characters max: it sits beside the logo).
+PANEL_TYPE = {
+    "A319": "A319", "A320": "A320", "A321": "A321", "A19N": "A319NEO", "A20N": "A320NEO", "A21N": "A321NEO",
+    "A332": "A330-200", "A333": "A330-300", "A339": "A330NEO", "A359": "A350-900", "A35K": "A350-1000",
+    "A388": "A380", "A343": "A340-300", "A346": "A340-600",
+    "B737": "737-700", "B738": "737-800", "B739": "737-900", "B38M": "737 MAX 8", "B39M": "737 MAX 9",
+    "B752": "757-200", "B763": "767-300", "B772": "777-200", "B77W": "777-300ER", "B77L": "777-200LR",
+    "B788": "787-8", "B789": "787-9", "B78X": "787-10", "B744": "747-400", "B748": "747-8",
+    "E170": "EMBRAER 170", "E175": "EMBRAER 175", "E190": "EMBRAER 190", "E195": "EMBRAER 195",
+    "E290": "E190-E2", "E295": "E195-E2", "AT75": "ATR 72", "AT76": "ATR 72", "AT45": "ATR 42",
+    "DH8D": "DASH 8 Q400", "BCS1": "A220-100", "BCS3": "A220-300", "CRJ9": "CRJ900", "CRJ7": "CRJ700",
+    "C152": "CESSNA 152", "C172": "CESSNA 172", "C182": "CESSNA 182", "PA28": "PIPER PA-28",
+    "SR22": "CIRRUS SR22", "DA40": "DIAMOND 40", "DA42": "DIAMOND 42",
+    "EC35": "H135", "EC45": "H145", "EC30": "H130", "A109": "AW109", "A169": "AW169", "A189": "AW189",
+    "AW39": "AW139", "S92": "S-92", "R44": "ROBINSON 44", "R22": "ROBINSON 22", "AS65": "DAUPHIN",
+    "HAWK": "HAWK T1", "EUFI": "TYPHOON", "F35": "F-35B", "A400": "A400M ATLAS", "C17": "C-17",
+    "C130": "C-130", "P8": "P-8A", "H47": "CHINOOK", "B52": "B-52", "A124": "AN-124", "A332M": "VOYAGER",
+    "SPIT": "SPITFIRE", "HURI": "HURRICANE", "LANC": "LANCASTER", "P51": "MUSTANG", "B17": "B-17",
+    "DC3": "DAKOTA", "DH82": "TIGER MOTH", "T6": "HARVARD",
+}
+
+
+def panel_type(type_code):
+    """'B738' -> '737-800'. Unknown types stay as their code."""
+    code = (type_code or "").upper()
+    return PANEL_TYPE.get(code, code)

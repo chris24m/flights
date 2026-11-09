@@ -168,6 +168,12 @@ class FactsAndSettingsTests(unittest.TestCase):
         self.assertEqual(out["sprite"], "twin")
         self.assertEqual(out["transitions"], ["flyby", "radar", "slide", "dissolve", "flap"])
 
+    def test_type_names_fit_the_panel(self):
+        from flightdisplay.facts import PANEL_TYPE
+        self.assertTrue(all(len(v) <= 11 for v in PANEL_TYPE.values()))
+        out = self.svc.build([dict(plane("400003", "RYR1", 0.03, 0, 4000), t="B738")], 992.0)
+        self.assertEqual((out["type"], out["type_code"]), ("737-800", "B738"))
+
     def test_settings_reject_bad_values(self):
         errs = self.svc.settings.update({"features.facts_every_s": ["999"], "display.units": ["furlongs"]})
         self.assertTrue(errs)
