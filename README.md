@@ -30,7 +30,7 @@ Settings page (from a phone, at home or over Tailscale): **http://flighttracker:
 facts page, rare-plane banner, plane of the day, radius, units, brightness schedule, screen transitions (fly-by plane, radar sweep, board scroll, sparkle, flap or random),
 and buttons to test each screen. Changes apply within seconds and are saved on the Pi.
 
-Debug tools for both sides: [DEBUGGING.md](DEBUGGING.md)
+Debug tools for both sides, and a fake-sky mode for testing without the antenna: [DEBUGGING.md](DEBUGGING.md)
 
 Tests for the antenna logic: `cd antenna && python3 -m unittest discover -s tests`
 

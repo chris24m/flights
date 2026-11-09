@@ -194,6 +194,7 @@ class Settings:
         err = "".join(f'<p class="err">{html.escape(e)}</p>' for e in errors)
         demo = (f'<a class="btn demo" href="/test?scenario=demo&back=1">&#9654; Demo: every screen and '
                 f'animation ({len(DEMO) * DEMO_STEP_S // 60} min {len(DEMO) * DEMO_STEP_S % 60} s)</a>')
+        demo += ' <a class="btn" href="/test?scenario=sky&seconds=3600&back=1">Fake sky (1 hour)</a>'
         tests = demo + "<br>" + " ".join(f'<a class="btn" href="/test?scenario={s}&seconds=30&back=1">{s}</a>'
                          for s in ("flight", "rare", "potd", "military", "redarrows", "emergency", "low"))
         return PAGE.format(msg=msg, err=err, rows="\n".join(rows), pin=pin, tests=tests)

@@ -181,6 +181,11 @@ class TestMode:
         if scenario in (None, "", "off"):
             self.scenario = None
             return True
+        if scenario == "sky":  # made-up aircraft instead of the real feed (see simulate.py)
+            from .simulate import FakeSky
+            self.sky = FakeSky(self.home, every_s=40)
+            self.scenario, self.until = "sky", now + seconds
+            return True
         if scenario == "demo":
             self.scenario, self.started, self.until = "demo", now, now + len(DEMO) * DEMO_STEP_S
             return True
@@ -214,7 +219,9 @@ class TestMode:
         step = self.demo_step(now)
         if step:  # demo: only the demo's own aircraft, so a real plane overhead can't interrupt it
             return SCENARIOS[step[1]](self.home) if step[1] else []
-        if self.scenario and self.scenario != "demo" and now < self.until:
+        if self.scenario == "sky" and now < self.until:
+            return self.sky.aircraft(now)
+        if self.scenario and self.scenario not in ("demo", "sky") and now < self.until:
             extra = self._custom_aircraft() if self.scenario == "custom" else SCENARIOS[self.scenario](self.home)
             return aircraft + extra
         self.scenario = None

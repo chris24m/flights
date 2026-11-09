@@ -51,6 +51,28 @@ Set `DEBUG` in `CIRCUITPY/settings.toml` (the board restarts when you save):
 Even with `DEBUG = 0` the panel shows `WIFI OK <ip>` briefly after connecting, and any crash is remembered
 and reported to the Pi after the automatic restart.
 
+## Testing without the antenna (fake sky)
+
+The Portal *pulls* `/display.json` from the Pi every few seconds; it never knows where the
+aircraft came from. So to test the panel without an antenna, readsb, or even the Pi, swap the
+real feed for made-up aircraft and run the normal service:
+
+| Where | How |
+|---|---|
+| Pi, from your phone | settings page → **Fake sky (1 hour)**. Press **stop** to go back to the real feed. |
+| Pi, over SSH | `sudo systemctl stop flight-display`, then `cd ~/flights/antenna && python3 -m flightdisplay --simulate` (Ctrl-C, then `sudo systemctl start flight-display` to go back) |
+| Pi, permanently | `aircraft_url = "simulate"` under `[receiver]` in config.toml, restart the service |
+| Your Mac | `cd antenna && python3 -m flightdisplay --simulate` (Python 3.11+). It broadcasts like the Pi does, so a Portal on the same Wi-Fi finds the Mac instead. Stop it and the Portal goes back to the Pi on its own. |
+
+A new aircraft arrives about every minute (`--every 20` for a busier sky), flies a straight line
+over home and leaves again: mostly easyJet / Ryanair / BA and friends, with the odd approach into
+Bournemouth ("LOOK UP!"), light aircraft, air ambulance, military, warbird, Red Arrows, the
+occasional 7700, and quiet spells so the clock gets a turn. Everything downstream is the real
+code: selection, logos, facts cards, plane of the day, transitions, brightness.
+
+Fake planes never go into the daily stats or "last seen". `/debug` and display.json show
+`"status": "simulated"` (or `"test": "sky"` for the settings-page button) so you can tell.
+
 ## If the panel says NO DATA
 
 1. `/debug` → `clients`: is the Portal listed with a recent `last_seen_ago_s`? If yes, the link works and
