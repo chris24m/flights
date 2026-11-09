@@ -140,6 +140,8 @@ SCENARIOS = {
     "military": lambda h: [_fake(h, "43c123", "ASCOT45", 0.1, 0.05, 15000, 320, 270, t="A400", db_flags=1)],
     "redarrows": lambda h: [_fake(h, "43c9a1", "RED1", 0, 0, 1500, 300, 90, t="HAWK", db_flags=1, pos=False)],
     "low": lambda h: [_fake(h, "4ca9b2", "RYR52KM", 0.008, -0.005, 1800, 145, 80, t="B738")],
+    "rare": lambda h: [_fake(h, "400a5f", "GSPIT", 0.03, 0.01, 1800, 220, 120, t="SPIT")],
+    "potd": lambda h: [],  # no aircraft: the Pi shows a plane-of-the-day card for the test period
     "flight": lambda h: [_fake(h, "40776a", "EZY45T", 0.03, 0.02, 4200, 180, 80, t="A320")],
 }
 

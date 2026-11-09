@@ -9,6 +9,7 @@ import collections
 import json
 import logging
 import os
+import random
 import socket
 import threading
 import time
@@ -18,6 +19,8 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from .facts import FACTS, card
+from .settings import Settings
 from .extras import SCENARIOS, Stats, TestMode, Weather, brightness_at, today_str
 from .lookups import Lookups
 from .refdata import airline_for, friendly_type
@@ -86,6 +89,7 @@ class Service:
                 state_dir = None
         lk = cfg.get("lookups", {})
         wx = cfg.get("weather", {})
+        self.settings = Settings(cfg, state_dir)  # applies settings-page overrides onto cfg
         self.selector = Selector(cfg)
         self.lookups = Lookups(state_dir, lk.get("enabled", True), lk.get("cache_days", 7))
         self.stats = Stats(state_dir)
@@ -141,7 +145,13 @@ class Service:
             "test": self.test.scenario,
             "status": "ok" if self.receiver_ok else "receiver offline",
         }
+        feat = self.cfg.get("features", {})
+        common["flap"] = bool(feat.get("flap", True))
         if pick.mode == "idle":
+            potd = self.potd_card(now, feat)
+            if potd:
+                potd.update(common)
+                return potd
             out = {
                 "mode": "idle",
                 "date": dt.strftime("%a %d %b").upper(),
@@ -158,8 +168,33 @@ class Service:
                 name = " ".join(x for x in (airline_name or pick.aircraft.callsign,
                                             friendly_type(ac_type)) if x)
                 self.stats.shown(name, now)
+            # Facts page: alternate with the details for normal flights, rare and military planes
+            # (never for emergencies or "look up", which need the details on screen).
+            level = (pick.alert or {}).get("level")
+            lines = card(ac_type)
+            every = max(3, int(feat.get("facts_every_s", 8)))
+            if (feat.get("facts_page", True) and lines and level in (None, "rare", "military")
+                    and int(now / every) % 2 == 1):
+                out = {"mode": "card", "style": "rare" if level == "rare" else "facts", "lines": lines,
+                       "col": out.get("col"), "callsign": out.get("callsign"), "airline": out.get("airline"),
+                       "alert": pick.alert}
         out.update(common)
         return out
+
+    def potd_card(self, now, feat):
+        """When the sky is quiet: every N minutes, a facts card for a random type for a few seconds."""
+        if self.test.scenario == "potd":
+            slot, show = int(now // 30), True
+        elif feat.get("potd", True):
+            period = max(1, int(feat.get("potd_every_min", 10))) * 60
+            slot, show = int(now // period), (now % period) < int(feat.get("potd_show_s", 20))
+        else:
+            return None
+        if not show:
+            return None
+        ac_type = random.Random(slot).choice(sorted(FACTS))
+        return {"mode": "card", "style": "potd", "lines": card(ac_type), "callsign": "POTD-%d" % slot,
+                "col": None, "airline": None, "alert": None}
 
     # --- loops ---------------------------------------------------------------
 
@@ -270,17 +305,51 @@ def make_handler(service):
                 self._send(200, service.current())
             elif url.path == "/debug":
                 self._send_debug()
+            elif url.path in ("/settings", "/"):
+                self._send_html(service.settings.page())
             elif url.path == "/test":
                 q = parse_qs(url.query)
                 scenario = q.get("scenario", ["off"])[0]
                 seconds = int(q.get("seconds", ["60"])[0])
                 ok = service.test.start(scenario, seconds)
+                if q.get("back"):  # from a button on the settings page
+                    self._send_html(service.settings.page(
+                        message=f"Test '{scenario}' running for {seconds} s" if scenario != "off" and ok
+                        else "Test stopped"))
+                    return
                 self._send(200 if ok else 400, {"ok": ok, "scenario": service.test.scenario,
                                                 "choices": sorted(SCENARIOS) + ["off"]})
             elif url.path == "/healthz":
                 self._send(200, {"ok": True, "receiver": service.receiver_ok})
             else:
                 self._send(404, {"error": "try /display.json, /debug, /test or /healthz"})
+
+        def _send_html(self, page, code=200):
+            body = page.encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            if urlparse(self.path).path != "/settings":
+                self._send(404, {"error": "not found"})
+                return
+            length = min(int(self.headers.get("Content-Length") or 0), 20000)
+            form = parse_qs(self.rfile.read(length).decode("utf-8", "replace"), keep_blank_values=True)
+            st = service.settings
+            if st.pin and form.get("pin", [""])[0] != st.pin:
+                self._send_html(st.page(errors=["Wrong PIN, nothing changed."]), 403)
+                return
+            if form.get("reset"):
+                st.reset()
+                self._send_html(st.page(message="Back to the defaults from config.toml."))
+                return
+            errors = st.update(form)
+            self._send_html(st.page(message="" if errors else "Saved. The panel updates within a few seconds.",
+                                    errors=errors))
 
         def _send_debug(self):
             d = json.loads(json.dumps(DIAG))

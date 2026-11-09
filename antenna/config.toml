@@ -24,6 +24,20 @@ switch_margin_km = 0.5
 # Port the Matrix Portal polls: http://<pi-ip>:<port>/display.json
 port = 8080
 
+[features]
+# All of these can also be changed from the settings page: http://<pi>:8080/settings
+facts_page = true        # alternate flight details with a facts card for the aircraft type
+facts_every_s = 8
+rare_banner = true       # gold "RARE!" banner for Spitfires, Lancasters, 747s... (list in facts.py)
+potd = true              # quiet sky: show a plane-of-the-day facts card now and then
+potd_every_min = 10
+potd_show_s = 20
+flap = true              # airport-board animation on screen changes
+
+[settings]
+# Optional PIN for saving on the settings page (stops visitors at Dad's fiddling). Empty = no PIN.
+pin = ""
+
 [discovery]
 # Broadcast this Pi's address so the Matrix Portal finds it without a fixed IP.
 enabled = true

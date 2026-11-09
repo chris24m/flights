@@ -108,8 +108,64 @@ class OtherTests(unittest.TestCase):
             import time
             out = svc.build([], time.time() + 20)  # +20 s so 7500 has "persisted"
             svc.selector._squawk_since.clear()
-            self.assertIn(out["mode"], ("alert", "flight"), name)
+            self.assertIn(out["mode"], ("alert", "flight", "card"), name)
             self.assertIn("brightness", out)
+
+
+class FactsAndSettingsTests(unittest.TestCase):
+    def setUp(self):
+        import copy
+        import tempfile
+        self.tmp = tempfile.mkdtemp()
+        cfg = copy.deepcopy(CFG)
+        cfg.update(state={"dir": self.tmp}, lookups={"enabled": False}, weather={"enabled": False})
+        self.svc = Service(cfg)
+
+    def test_all_fact_lines_fit_panel(self):
+        from flightdisplay.facts import FACTS, RARE, card
+        for t in FACTS:
+            for line in card(t):
+                self.assertLessEqual(len(line), 16, (t, line))
+        self.assertFalse(RARE - FACTS.keys())
+
+    def test_rare_banner(self):
+        p = Selector(CFG).choose([dict(plane("400a5f", "GSPIT", 0.05, 0, 2000), t="SPIT")], 0)
+        self.assertEqual((p.alert["level"], p.alert["text"]), ("rare", "RARE! SPITFIRE"))
+
+    def test_facts_page_alternates(self):
+        raw = [dict(plane("400001", "EZY45T", 0.03, 0, 4000), t="A320")]
+        self.assertEqual(self.svc.build(raw, 992.0)["mode"], "flight")   # int(992/8) even
+        out = self.svc.build(raw, 1000.0)                                 # odd: facts card
+        self.assertEqual((out["mode"], out["lines"][0]), ("card", "AIRBUS A320"))
+
+    def test_settings_update_and_reset(self):
+        st = self.svc.settings
+        form = {"features.facts_page": ["0"], "features.facts_every_s": ["8"], "features.rare_banner": ["0", "1"],
+                "features.potd": ["0", "1"], "features.potd_every_min": ["5"], "features.potd_show_s": ["20"],
+                "features.flap": ["0"], "display.radius_km": ["5"], "display.units": ["km"],
+                "alerts.military_radius_km": ["25"],
+                "brightness.schedule.t0": ["08:00"], "brightness.schedule.v0": ["50"],
+                "brightness.schedule.t1": ["23:00"], "brightness.schedule.v1": ["0"]}
+        self.assertEqual(st.update(form), [])
+        self.assertFalse(self.svc.cfg["features"]["facts_page"])
+        self.assertAlmostEqual(self.svc.cfg["display"]["radius_km"], 8.05, places=1)
+        self.assertEqual(self.svc.cfg["brightness"]["schedule"], [["08:00", 0.5], ["23:00", 0.0]])
+        raw = [dict(plane("400001", "EZY45T", 0.03, 0, 4000), t="A320")]
+        self.assertEqual(self.svc.build(raw, 1000.0)["mode"], "flight")   # facts page now off
+        self.assertTrue(os.path.exists(os.path.join(self.tmp, "settings.json")))
+        st.reset()
+        self.assertTrue(self.svc.cfg["features"]["facts_page"])
+        self.assertEqual(self.svc.cfg["display"]["radius_km"], CFG["display"]["radius_km"])
+
+    def test_settings_reject_bad_values(self):
+        errs = self.svc.settings.update({"features.facts_every_s": ["999"], "display.units": ["furlongs"]})
+        self.assertTrue(errs)
+
+    def test_potd_shows_only_in_its_window(self):
+        f = self.svc.cfg["features"]
+        period = f["potd_every_min"] * 60
+        self.assertEqual(self.svc.build([], period * 50 + 1)["mode"], "card")
+        self.assertEqual(self.svc.build([], period * 50 + f["potd_show_s"] + 1)["mode"], "idle")
 
 
 if __name__ == "__main__":
