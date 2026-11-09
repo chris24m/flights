@@ -43,6 +43,12 @@ AIRLINES = {
     "RRR": ("RAF", "#3A6FD8"),
 }
 
+# Sister airline codes that share a logo file on the panel (display/logos/<code>.bmp).
+LOGO_ALIAS = {
+    "EJU": "EZY", "EZS": "EZY", "RUK": "RYR", "SHT": "BAW", "WUK": "WZZ",
+    "BCS": "DHK", "NAX": "NOZ", "NSZ": "NOZ", "IBK": "NOZ",
+}
+
 # readsb/ICAO type designator -> short friendly name for the idle "last seen" line
 TYPE_NAMES = {
     "A319": "A319", "A320": "A320", "A321": "A321",
@@ -62,7 +68,7 @@ TYPE_NAMES = {
 
 
 def airline_for(callsign):
-    """Return (icao_prefix, name, colour) for a callsign, or (None, None, None)."""
+    """Return (logo code, name, colour) for a callsign, or (None, None, None)."""
     if not callsign or len(callsign) < 4:
         return None, None, None
     prefix = callsign[:3].upper()
@@ -70,7 +76,7 @@ def airline_for(callsign):
     if not prefix.isalpha() or not any(ch.isdigit() for ch in callsign[3:]):
         return None, None, None
     name, colour = AIRLINES.get(prefix, (None, None))
-    return prefix, name, colour
+    return LOGO_ALIAS.get(prefix, prefix), name, colour
 
 
 def friendly_type(type_code):
