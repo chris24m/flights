@@ -93,16 +93,29 @@ class Service:
         self.settings = Settings(cfg, state_dir)  # applies settings-page overrides onto cfg
         self.selector = Selector(cfg)
         self.lookups = Lookups(state_dir, lk.get("enabled", True), lk.get("cache_days", 7))
-        self.simulated = cfg["receiver"].get("aircraft_url") == "simulate"
-        self.fake_sky = FakeSky(cfg["home"], cfg["receiver"].get("simulate_every_s", 60)) if self.simulated \
-            else None
-        self.stats = Stats(None if self.simulated else state_dir)  # don't mix fake planes into Dad's stats
+        self.fake_sky = None
+        self.stats = Stats(state_dir)
         self.weather = Weather(cfg["home"]["lat"], cfg["home"]["lon"], wx.get("enabled", True),
                                wx.get("refresh_minutes", 15))
         self.test = TestMode(cfg["home"])
         self.display = {"mode": "idle", "status": "starting"}
         self.receiver_ok = False
         self._lock = threading.Lock()
+
+    @property
+    def simulated(self):
+        """Fake sky instead of the antenna: settings-page tick box, --simulate, or aircraft_url = "simulate"."""
+        rcv = self.cfg["receiver"]
+        return bool(rcv.get("simulate")) or rcv.get("aircraft_url") == "simulate"
+
+    def read_feed(self, now):
+        if not self.simulated:
+            self.fake_sky = None
+            return read_aircraft(self.cfg["receiver"]["aircraft_url"])
+        if self.fake_sky is None:
+            log.info("receiver: simulated (fake sky)")
+            self.fake_sky = FakeSky(self.cfg["home"], self.cfg["receiver"].get("simulate_every_s", 60))
+        return self.fake_sky.aircraft(now)
 
     # --- building the JSON ---------------------------------------------------
 
@@ -148,7 +161,8 @@ class Service:
         for p in planes:
             if p.has_position and (p.seen_pos is None or p.seen_pos <= max_age):
                 p.dist_km = haversine_km(home["lat"], home["lon"], p.lat, p.lon)
-        self.stats.update([p for p in planes if p.seen < 60], today_str(now))
+        if not self.simulated:  # never mix fake planes into Dad's stats
+            self.stats.update([p for p in planes if p.seen < 60], today_str(now))
 
         dt = datetime.fromtimestamp(now)
         common = {
@@ -180,7 +194,7 @@ class Service:
             }
         else:
             out, airline_name, ac_type = self.describe(pick.aircraft, pick)
-            if not self.test.scenario:
+            if not self.test.scenario and not self.simulated:
                 name = " ".join(x for x in (airline_name or pick.aircraft.callsign,
                                             friendly_type(ac_type)) if x)
                 self.stats.shown(name, now)
@@ -229,9 +243,9 @@ class Service:
             now = time.time()
             r = DIAG["receiver"]
             r["polls"] += 1
-            r["url"] = rcv["aircraft_url"]
+            r["url"] = "simulated (fake sky)" if self.simulated else rcv["aircraft_url"]
             try:
-                raw = self.fake_sky.aircraft(now) if self.fake_sky else read_aircraft(rcv["aircraft_url"])
+                raw = self.read_feed(now)
                 if not self.receiver_ok:
                     log.info("receiver OK: %d aircraft", len(raw))
                 self.receiver_ok = True
@@ -432,8 +446,7 @@ def main():
         service.test.start(args.test, 600)
     if args.once:
         try:
-            raw = (service.fake_sky.aircraft(time.time()) if service.fake_sky
-                   else read_aircraft(cfg["receiver"]["aircraft_url"]))
+            raw = service.read_feed(time.time())
             service.receiver_ok = True
         except Exception as e:
             log.warning("receiver read failed: %s", e)

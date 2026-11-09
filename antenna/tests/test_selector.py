@@ -208,6 +208,23 @@ class FactsAndSettingsTests(unittest.TestCase):
         self.assertGreater(len(shown), 10)            # plenty of different aircraft came over
         self.assertLess(len(sky.planes), 12)          # and old ones are cleared away
 
+    def test_simulate_receiver_tick_box(self):
+        from flightdisplay.settings import FIELDS
+        st = self.svc.settings
+        form = {f"{s}.{k}": [str(self.svc.cfg[s][k])] for s, k, _, kind, _ in FIELDS if kind == "int"}
+        form.update({"display.radius_km": ["10"], "display.units": ["mi"], "alerts.military_radius_km": ["25"],
+                     "brightness.schedule.t0": ["07:00"], "brightness.schedule.v0": ["50"],
+                     "receiver.simulate": ["0", "1"]})
+        self.assertEqual(st.update(form), [])
+        self.assertTrue(self.svc.simulated)
+        self.assertTrue(self.svc.read_feed(5000.0))      # fake aircraft, no antenna
+        self.svc.receiver_ok = True  # set by the poll loop
+        out = self.svc.build(self.svc.read_feed(5001.0), 5001.0)
+        self.assertEqual(out["status"], "simulated")
+        self.assertEqual(self.svc.stats.seen_today, set())  # stats untouched
+        st.reset()
+        self.assertFalse(self.svc.simulated)
+
     def test_fake_sky_from_the_settings_page(self):
         self.assertTrue(self.svc.test.start("sky", 3600, now=1000.0))
         out = self.svc.build([], 1001.0)

@@ -9,6 +9,8 @@ lon = -0.20
 # readsb/tar1090 live data. A local file path also works (handy for testing).
 aircraft_url = "http://localhost/tar1090/data/aircraft.json"
 poll_seconds = 1.0
+# true = no antenna needed: made-up aircraft fly over home (also a tick box on the settings page).
+simulate = false
 # Ignore positions older than this (seconds).
 max_position_age = 30
 # Keep a military contact with no position on screen for this long after its last message.
