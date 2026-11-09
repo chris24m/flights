@@ -27,6 +27,11 @@ port = 8080
 enabled = true
 port = 50222
 
+[debug]
+# true = log every broadcast, Portal request and display change (journalctl -u flight-display -f).
+# The /debug page works either way.
+verbose = false
+
 [alerts]
 # "Look out the window": below this altitude AND within this distance.
 low_alt_ft = 3000

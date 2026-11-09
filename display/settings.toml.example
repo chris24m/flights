@@ -10,3 +10,7 @@ WIFI_PASSWORD_2 = "dads-password"
 # DISPLAY_URLS = "http://192.168.1.50:8080/display.json"
 
 POLL_SECONDS = 3
+
+# 0 = normal. 1 = detailed log on the USB serial console (Mu, Thonny or `screen`).
+# 2 = also replace the flight screen with a diagnostics screen (Wi-Fi, IPs, Pi status, last error).
+DEBUG = 0

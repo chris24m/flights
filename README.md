@@ -26,6 +26,8 @@ Pro Stick Plus ─USB─ Pi 3B (readsb → aircraft.json → flight display serv
 `mode` is `flight`, `alert` (with `alert.level` = `emergency` / `military` / `low`) or `idle`
 (with `date`, `weather`, `last`, `today`, `furthest_km`).
 
+Debug tools for both sides: [DEBUGGING.md](DEBUGGING.md)
+
 Tests for the antenna logic: `cd antenna && python3 -m unittest discover -s tests`
 
 ## Power cuts and unplugging

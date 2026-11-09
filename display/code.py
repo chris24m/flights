@@ -35,6 +35,30 @@ for n in (1, 2, 3):
     if ssid:
         NETWORKS.append((ssid, os.getenv("WIFI_PASSWORD_%d" % n) or ""))
 POLL_SECONDS = float(os.getenv("POLL_SECONDS") or 3)
+# DEBUG = 0 normal, 1 = detailed log on the USB serial console, 2 = also a diagnostics screen on the panel
+DEBUG = int(os.getenv("DEBUG") or 0)
+VERSION = "2026.11.09"
+
+# What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
+# so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
+STATE = {"ssid": "", "ip": "", "rssi": 0, "url": "", "via": "", "last_ok": None, "fails": 0, "err": "",
+         "found": 0}
+URL_SOURCE = {}  # url -> how we learned it: saved / settings / hostname / discovery
+
+
+def log(*args):
+    print("%9.1f" % time.monotonic(), *args)
+
+
+def dbg(*args):
+    if DEBUG:
+        log(*args)
+
+
+def note_error(text):
+    """Remember the latest problem (shown on the diagnostics screen and reported to the Pi)."""
+    STATE["err"] = str(text)[:60]
+    log("ERROR", text)
 STALE_SECONDS = 30  # show "no data" if the Pi hasn't answered for this long
 
 # --- colours (dimmed by the Pi's brightness value) ----------------------------
@@ -230,8 +254,30 @@ m2 = label(msg_g, 0, 16, colour=GREY)
 root.append(msg_g)
 
 
+# Diagnostics screen (DEBUG = 2): what the Portal sees, for checking at Dad's without a laptop.
+diag_g = displayio.Group()
+d_lines = [label(diag_g, 0, y, colour=c) for y, c in ((0, CYAN), (6, WHITE), (12, AMBER), (18, GREEN), (24, RED))]
+err_scroll = Scroller(d_lines[4])
+root.append(diag_g)
+
+
+def show_diagnostics(now):
+    global brightness
+    brightness = max(brightness, 0.3)
+    root.hidden = False
+    update_rssi()
+    pi = STATE["url"].replace("http://", "").split("/")[0].split(":")[0]
+    age = ("%dS" % (now - STATE["last_ok"])) if STATE["last_ok"] is not None else "NEVER"
+    texts = ("W " + STATE["ssid"][:14], "%s %sDB" % (STATE["ip"] or "NO IP", STATE["rssi"]),
+             "PI " + (pi or "?"), "OK %s %s" % (age, STATE["via"].upper()[:6]), STATE["err"].upper() or "NO ERRORS")
+    for lab, text in zip(d_lines, texts):
+        set_text(lab, text)
+    err_scroll.tick()
+    show_only(diag_g)
+
+
 def show_only(group):
-    for g in (flight_g, alert_g, idle_g, msg_g):
+    for g in (flight_g, alert_g, idle_g, msg_g, diag_g):
         g.hidden = g is not group
 
 
@@ -331,13 +377,49 @@ def connect_wifi():
             message("WIFI...", ssid[:16])
             try:
                 esp.connect_AP(ssid, password)
+                STATE["ssid"] = ssid
+                STATE["ip"] = esp.pretty_ip(esp.ip_address)
+                update_rssi()
+                log("wifi connected:", ssid, "ip", STATE["ip"], "rssi", STATE["rssi"])
+                message("WIFI OK", STATE["ip"])
+                for _ in range(3 if DEBUG else 1):
+                    wdt.feed()
+                    time.sleep(1)
                 return
             except (RuntimeError, ConnectionError, OSError) as e:
-                print("wifi", ssid, "failed:", e)
+                note_error("wifi %s: %s" % (ssid, e))
         message("NO WIFI", "RETRYING")
         for _ in range(10):
             wdt.feed()
             time.sleep(1)
+
+
+def update_rssi():
+    try:
+        STATE["rssi"] = esp.ap_info.rssi        # newer adafruit_esp32spi
+    except AttributeError:
+        try:
+            STATE["rssi"] = esp.rssi           # older versions
+        except Exception:  # noqa: BLE001
+            pass
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def quote(text):
+    out = ""
+    for ch in str(text):
+        out += ch if ch.isalpha() or ch.isdigit() or ch in "-._" else "%%%02X" % (ord(ch) & 0xFF)
+    return out
+
+
+def report_query():
+    up = int(time.monotonic())
+    q = "portal=%s&ip=%s&rssi=%s&ssid=%s&via=%s&fails=%d&up=%d&reset=%s" % (
+        VERSION, STATE["ip"], STATE["rssi"], quote(STATE["ssid"]), STATE["via"], STATE["fails"], up, RESET_REASON)
+    if STATE["err"]:
+        q += "&err=" + quote(STATE["err"])
+    return q
 
 
 # --- finding the Pi ------------------------------------------------------------
@@ -367,25 +449,32 @@ def save_url(url):
 
 def discover(seconds=8):
     """Listen for the Pi's UDP broadcast ("FLIGHTDISPLAY <url>", sent every few seconds)."""
+    log("listening for the Pi's broadcast on UDP", DISCOVERY_PORT, "for", seconds, "s")
     try:
         sock = esp.get_socket()
         esp.start_server(DISCOVERY_PORT, sock, conn_mode=esp.UDP_MODE)
     except Exception as e:  # noqa: BLE001 - older Wi-Fi firmware: fall back to fixed addresses
-        print("discovery unavailable:", e)
+        note_error("discovery unavailable: %s" % e)
         return None
+    packets = 0
     try:
         end = time.monotonic() + seconds
         while time.monotonic() < end:
             wdt.feed()
             n = esp.socket_available(sock)
             if n:
-                msg = bytes(esp.socket_read(sock, n)).decode("utf-8", "ignore").split()
+                packets += 1
+                raw = bytes(esp.socket_read(sock, n)).decode("utf-8", "ignore")
+                dbg("udp packet:", repr(raw))
+                msg = raw.split()
                 if len(msg) >= 2 and msg[0] == "FLIGHTDISPLAY" and msg[1].startswith("http://"):
-                    print("found Pi at", msg[1])
+                    log("found Pi at", msg[1])
+                    STATE["found"] += 1
                     return msg[1]
             time.sleep(0.2)
+        note_error("no broadcast heard (%d other packets)" % packets)
     except Exception as e:  # noqa: BLE001
-        print("discovery failed:", e)
+        note_error("discovery failed: %s" % e)
     finally:
         try:
             esp.socket_close(sock)
@@ -394,11 +483,15 @@ def discover(seconds=8):
     return None
 
 
+for u in URLS:
+    URL_SOURCE[u] = "settings"
 saved = load_saved_url()
 if saved and saved not in URLS:
     URLS.insert(0, saved)
+    URL_SOURCE[saved] = "saved"
 if HOSTNAME_URL not in URLS:
     URLS.append(HOSTNAME_URL)
+    URL_SOURCE[HOSTNAME_URL] = "hostname"
 
 
 def fetch():
@@ -410,6 +503,7 @@ def fetch():
             if url in URLS:
                 URLS.remove(url)
             URLS.insert(0, url)
+            URL_SOURCE[url] = "discovery"
             data = try_urls()
     return data
 
@@ -418,17 +512,43 @@ def try_urls():
     global URLS
     for i, url in enumerate(URLS):
         wdt.feed()
+        t = time.monotonic()
         try:
-            resp = requests.get(url, timeout=4)
+            resp = requests.get(url + "?" + report_query(), timeout=4)
+            status = resp.status_code
             data = resp.json()
             resp.close()
+            if status != 200:
+                raise ValueError("HTTP %d" % status)
             if i:  # try the one that worked first next time
                 URLS = [url] + URLS[:i] + URLS[i + 1:]
+            if STATE["url"] != url:
+                log("using", url, "(%s)" % URL_SOURCE.get(url, "?"))
             save_url(url)
+            STATE.update(url=url, via=URL_SOURCE.get(url, "?"), last_ok=time.monotonic(), fails=0, err="")
+            dbg("fetch ok %dms %s %s" % ((time.monotonic() - t) * 1000, data.get("mode"), data.get("callsign", "")))
             return data
         except Exception as e:  # noqa: BLE001 - any failure just means "try the next one"
-            print("fetch", url, "failed:", e)
+            dbg("fetch", url, "failed after %dms:" % ((time.monotonic() - t) * 1000), e)
+            last = "%s: %s" % (URL_SOURCE.get(url, "?"), e)
+    STATE["fails"] += 1
+    note_error(last if URLS else "no Pi address known yet")
     return None
+
+
+# --- why did we (re)start? ---------------------------------------------------------
+try:
+    RESET_REASON = str(microcontroller.cpu.reset_reason).split(".")[-1]  # e.g. POWER_ON, WATCHDOG
+except Exception:  # noqa: BLE001
+    RESET_REASON = "UNKNOWN"
+log("flight display", VERSION, "starting; reset reason:", RESET_REASON, "debug:", DEBUG)
+try:
+    n = microcontroller.nvm[256]
+    if 0 < n <= 120:
+        note_error(bytes(microcontroller.nvm[257:257 + n]).decode("utf-8", "ignore"))
+        microcontroller.nvm[256] = 0
+except Exception:  # noqa: BLE001
+    pass
 
 
 # --- main loop -----------------------------------------------------------------
@@ -463,7 +583,9 @@ def run():
                         pass
                     failures = 0
             gc.collect()
-        if data is not None and now - last_ok < STALE_SECONDS:
+        if DEBUG >= 2:
+            show_diagnostics(now)
+        elif data is not None and now - last_ok < STALE_SECONDS:
             draw(data, now)
             last_scroll.tick()
             banner_scroll.tick()
@@ -477,7 +599,16 @@ def run():
 
 try:
     run()
-except Exception as e:  # noqa: BLE001 - anything unexpected: log it and start again
-    print("crashed:", e)
+except Exception as e:  # noqa: BLE001 - anything unexpected: log it, remember it, start again
+    try:
+        import traceback
+        traceback.print_exception(e)
+    except Exception:  # noqa: BLE001
+        log("crashed:", e)
+    try:  # kept in non-volatile memory so it's reported to the Pi after the restart
+        b = ("crash: %r" % e).encode()[:120]
+        microcontroller.nvm[256:257 + len(b)] = bytes([len(b)]) + b
+    except Exception:  # noqa: BLE001
+        pass
     time.sleep(5)
     microcontroller.reset()
