@@ -68,6 +68,7 @@ STALE_SECONDS = 30  # show "no data" if the Pi hasn't answered for this long
 
 WHITE, GREY, AMBER, CYAN, GREEN = 0xFFFFFF, 0x808080, 0xFFA000, 0x00C0FF, 0x40FF40
 RED, BLUE, YELLOW, BLACK, NAVY = 0xFF0000, 0x2040FF, 0xFFD000, 0x000000, 0x001060
+GOLD = 0xFFB000
 brightness = 0.15  # until the Pi says otherwise: low, so a 3am power cut doesn't light the room
 
 
@@ -284,6 +285,12 @@ i_stats = label(idle_g, 0, 26, colour=GREEN)
 last_scroll = Scroller(i_last)
 root.append(idle_g)
 
+# Facts card: five lines (name, speed, ceiling, first flight, fun fact), sent ready-made by the Pi.
+card_g = displayio.Group()
+c_lines = [label(card_g, 0, y, colour=c) for y, c in ((1, WHITE), (7, CYAN), (13, GREEN), (19, AMBER), (25, GREY))]
+card_scrolls = [Scroller(lab) for lab in c_lines]
+root.append(card_g)
+
 # Message screen: Wi-Fi / Pi problems.
 msg_g = displayio.Group()
 m1 = label(msg_g, 0, 8, colour=AMBER)
@@ -314,7 +321,7 @@ def show_diagnostics(now):
 
 
 def show_only(group):
-    for g in (flight_g, alert_g, idle_g, msg_g, diag_g):
+    for g in (flight_g, alert_g, idle_g, msg_g, diag_g, card_g):
         g.hidden = g is not group
 
 
@@ -352,6 +359,7 @@ ALERT_STYLE = {  # level: (banner bg, text, stripe colour, flash period in s or 
     "emergency": (RED, WHITE, RED, 0.5),
     "military": (NAVY, WHITE, RED, 0),
     "low": (YELLOW, BLACK, YELLOW, 1.0),
+    "rare": (GOLD, BLACK, WHITE, 0),
 }
 
 
@@ -359,12 +367,14 @@ last_scene = None
 
 
 def draw(d, now):
-    global brightness, animate_now, last_scene
+    global brightness, animate_now, last_scene, FLAP
     alert = d.get("alert") or {}
     scene = (d.get("mode"), d.get("callsign"), alert.get("text"))
     animate_now = scene != last_scene  # new aircraft or screen: flap everything once
     last_scene = scene
     brightness = float(d.get("brightness", 0.5))
+    if "flap" in d:  # the Pi's settings page can switch the animation on/off
+        FLAP = 1 if d["flap"] else 0
     root.hidden = brightness <= 0
     mode = d.get("mode")
     if mode == "flight":
@@ -376,6 +386,15 @@ def draw(d, now):
         set_text(f_altspd, fmt_altspd(d))
         set_text(f_hdg, fmt_hdg(d))
         show_only(flight_g)
+    elif mode == "card":
+        style = d.get("style")
+        title_colour = GOLD if style in ("rare", "potd") else parse_colour(d.get("col"), WHITE)
+        lines = (d.get("lines") or []) + [""] * 5
+        for i, lab in enumerate(c_lines):
+            set_text(lab, lines[i], title_colour if i == 0 else None)
+        for sc in card_scrolls:
+            sc.tick()
+        show_only(card_g)
     elif mode == "alert":
         alert = d.get("alert") or {}
         bg, fg, stripe, flash = ALERT_STYLE.get(alert.get("level"), ALERT_STYLE["emergency"])

@@ -7,6 +7,8 @@ import math
 import re
 from dataclasses import dataclass, field
 
+from .facts import FACTS, RARE
+
 EMERGENCY_SQUAWKS = {
     "7700": "EMERGENCY 7700",
     "7600": "RADIO FAIL 7600",
@@ -179,6 +181,15 @@ class Selector:
         if mil:
             p = min(mil, key=by_dist)
             return Pick("alert", p, {"level": "military", "text": self.military_label(p)})
+
+        # 2b. Rare types (Spitfire, Lancaster, 747...): a celebratory banner, same range as military.
+        if self.cfg.get("features", {}).get("rare_banner", True):
+            rare = [p for p in planes if (p.type or "").upper() in RARE
+                    and (p.dist_km is None or p.dist_km <= mil_radius)]
+            if rare:
+                p = min(rare, key=by_dist)
+                name = (FACTS.get(p.type.upper()) or (p.type,))[0]
+                return Pick("alert", p, {"level": "rare", "text": "RARE! " + name})
 
         # 3. Low and close.
         low = [p for p in planes if p.dist_km is not None and not p.on_ground and p.alt is not None
