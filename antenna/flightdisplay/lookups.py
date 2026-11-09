@@ -77,6 +77,8 @@ class Lookups:
         tmp = self.path + ".tmp"
         with open(tmp, "w") as f:
             json.dump(data, f)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, self.path)
 
     def _cached(self, key):

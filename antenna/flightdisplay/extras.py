@@ -45,6 +45,8 @@ class Stats:
             json.dump({"day": self.day, "seen_today": sorted(self.seen_today),
                        "furthest_km": self.furthest_km, "furthest_callsign": self.furthest_callsign,
                        "last_seen": self.last_seen}, f)
+            f.flush()
+            os.fsync(f.fileno())  # so a power cut can't leave a half-written file
         os.replace(tmp, self.path)
 
     def update(self, planes, today):
@@ -96,9 +98,12 @@ class Weather:
                 with urllib.request.urlopen(url, timeout=10) as r:
                     cur = json.load(r)["current"]
                 self.text = f"{round(cur['temperature_2m'])}C {WMO.get(cur['weather_code'], '')}".strip()
+                wait = self.refresh
             except Exception as e:
+                # Usually the network isn't up yet after a power cut: try again soon.
                 log.warning("weather failed: %s", e)
-            time.sleep(self.refresh)
+                wait = 60
+            time.sleep(wait)
 
 
 # --- brightness -------------------------------------------------------------

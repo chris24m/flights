@@ -10,8 +10,10 @@ import time
 import board
 import busio
 import displayio
+import microcontroller
 import terminalio
 from digitalio import DigitalInOut
+from watchdog import WatchDogMode
 
 import adafruit_connection_manager
 import adafruit_imageload
@@ -36,7 +38,7 @@ STALE_SECONDS = 30  # show "no data" if the Pi hasn't answered for this long
 
 WHITE, GREY, AMBER, CYAN, GREEN = 0xFFFFFF, 0x808080, 0xFFA000, 0x00C0FF, 0x40FF40
 RED, BLUE, YELLOW, BLACK, NAVY = 0xFF0000, 0x2040FF, 0xFFD000, 0x000000, 0x001060
-brightness = 0.5
+brightness = 0.15  # until the Pi says otherwise: low, so a 3am power cut doesn't light the room
 
 
 def dim(rgb):
@@ -311,10 +313,18 @@ pool = adafruit_connection_manager.get_radio_socketpool(esp)
 requests = adafruit_requests.Session(pool, adafruit_connection_manager.get_radio_ssl_context(esp))
 
 
+# Hardware watchdog: if the code ever hangs (the ESP32 Wi-Fi chip occasionally wedges),
+# the board resets itself after 16 s without a feed. Fed in the main loop and around slow calls.
+wdt = microcontroller.watchdog
+wdt.timeout = 16
+wdt.mode = WatchDogMode.RESET
+
+
 def connect_wifi():
     """Try each network in settings.toml (yours and Dad's) until one works."""
     while not esp.is_connected:
         for ssid, password in NETWORKS:
+            wdt.feed()
             message("WIFI...", ssid[:16])
             try:
                 esp.connect_AP(ssid, password)
@@ -322,13 +332,16 @@ def connect_wifi():
             except (RuntimeError, ConnectionError, OSError) as e:
                 print("wifi", ssid, "failed:", e)
         message("NO WIFI", "RETRYING")
-        time.sleep(10)
+        for _ in range(10):
+            wdt.feed()
+            time.sleep(1)
 
 
 def fetch():
     """Return the display dict from the first Pi URL that answers, or None."""
     global URLS
     for i, url in enumerate(URLS):
+        wdt.feed()
         try:
             resp = requests.get(url, timeout=5)
             data = resp.json()
@@ -346,34 +359,48 @@ def fetch():
 if not NETWORKS or not URLS:
     message("SETUP NEEDED", "SETTINGS.TOML")
     while True:
-        time.sleep(60)
+        wdt.feed()
+        time.sleep(5)
 
-connect_wifi()
-data, last_ok, next_poll, failures = None, 0, 0, 0
-while True:
-    now = time.monotonic()
-    if now >= next_poll:
-        next_poll = now + POLL_SECONDS
-        if not esp.is_connected:
-            connect_wifi()
-        new = fetch()
-        if new is not None:
-            data, last_ok, failures = new, now, 0
+
+def run():
+    global brightness
+    connect_wifi()
+    data, last_ok, next_poll, failures = None, 0, 0, 0
+    while True:
+        wdt.feed()
+        now = time.monotonic()
+        if now >= next_poll:
+            next_poll = now + POLL_SECONDS
+            if not esp.is_connected:
+                connect_wifi()
+            new = fetch()
+            if new is not None:
+                data, last_ok, failures = new, now, 0
+            else:
+                failures += 1
+                if failures >= 5:  # reset the Wi-Fi link; the next loop reconnects
+                    try:
+                        esp.disconnect()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    failures = 0
+            gc.collect()
+        if data is not None and now - last_ok < STALE_SECONDS:
+            draw(data, now)
+            last_scroll.tick()
+            banner_scroll.tick()
         else:
-            failures += 1
-            if failures >= 5:
-                try:
-                    esp.disconnect()
-                except Exception:  # noqa: BLE001
-                    pass
-                failures = 0
-        gc.collect()
-    if data is not None and now - last_ok < STALE_SECONDS:
-        draw(data, now)
-        last_scroll.tick()
-        banner_scroll.tick()
-    else:
-        brightness = max(brightness, 0.2)
-        root.hidden = False
-        message("NO DATA", "IS THE PI ON?")
-    time.sleep(0.05)
+            # Pi gone quiet: say so, dimly. If the panel was off (overnight), stay off.
+            brightness = min(brightness, 0.15) if brightness > 0 else 0
+            root.hidden = brightness <= 0
+            message("NO DATA", "IS THE PI ON?")
+        time.sleep(0.05)
+
+
+try:
+    run()
+except Exception as e:  # noqa: BLE001 - anything unexpected: log it and start again
+    print("crashed:", e)
+    time.sleep(5)
+    microcontroller.reset()

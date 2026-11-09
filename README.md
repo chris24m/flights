@@ -27,3 +27,19 @@ Pro Stick Plus ─USB─ Pi 3B (readsb → aircraft.json → flight display serv
 (with `date`, `weather`, `last`, `today`, `furthest_km`).
 
 Tests for the antenna logic: `cd antenna && python3 -m unittest discover -s tests`
+
+## Power cuts and unplugging
+
+Both boxes come back on their own, and in either order:
+
+| | What happens |
+|---|---|
+| **Pi unplugged / power cut** | Boots in about a minute; readsb and the display service start automatically (`Restart=always` also restarts the service if it ever crashes). Stats and the route cache are saved every minute, so at most a minute of "aircraft today" is lost. |
+| **Panel while the Pi is away** | Keeps showing the last screen for 30 s, then a dim "NO DATA / IS THE PI ON?" (stays dark if it was in its overnight-off period). Recovers within 3 s of the Pi answering. |
+| **Portal unplugged / power cut** | `code.py` runs at power-on: about 10–20 s to join Wi-Fi, then it draws straight away. It starts at low brightness so a night-time restart doesn't light the room. |
+| **Portal code hangs or crashes** | A 16 s hardware watchdog resets the board, and any unexpected error resets it after 5 s. |
+| **Wi-Fi drops** | The Portal reconnects on its own, trying each network in `settings.toml`. |
+
+The one real risk is SD card corruption on the Pi from repeated hard power cuts. A good-brand card helps; for extra
+safety you can turn on the read-only overlay filesystem (`sudo raspi-config` → Performance → Overlay File System)
+once everything is final, at the cost of stats resetting on each reboot and needing to switch it off to make changes.
