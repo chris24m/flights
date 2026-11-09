@@ -143,7 +143,29 @@ SCENARIOS = {
     "rare": lambda h: [_fake(h, "400a5f", "GSPIT", 0.03, 0.01, 1800, 220, 120, t="SPIT")],
     "potd": lambda h: [],  # no aircraft: the Pi shows a plane-of-the-day card for the test period
     "flight": lambda h: [_fake(h, "40776a", "EZY45T", 0.03, 0.02, 4200, 180, 80, t="A320")],
+    "rare747": lambda h: [_fake(h, "4007f1", "BAW2490", 0.02, -0.03, 3800, 190, 260, t="B744")],
+    "heli": lambda h: [_fake(h, "407c35", "HLE87", 0.01, 0.01, 900, 110, 300, t="EC35")],
 }
+
+# Demo: every screen and every transition, DEMO_STEP_S seconds each.
+# (what's on screen, fake aircraft scenario or None, "flight" / "card" / "idle" / "potd", transition into it)
+DEMO_STEP_S = 8
+DEMO = [
+    ("Clock", None, "idle", "flap"),
+    ("Flight (fly-by, eastbound)", "flight", "flight", "flyby"),
+    ("Facts card", "flight", "card", "radar"),
+    ("Clock (plane flies off)", None, "idle", "flyby"),
+    ("Rare 747 (westbound fly-by)", "rare747", "flight", "flyby"),
+    ("Rare facts card", "rare747", "card", "dissolve"),
+    ("Military A400M", "military", "flight", "slide"),
+    ("Red Arrows", "redarrows", "flight", "flap"),
+    ("Look up! (low and close)", "low", "flight", "flyby"),
+    ("Emergency 7700", "emergency", "flight", "radar"),
+    ("Helicopter", "heli", "flight", "flyby"),
+    ("Spitfire", "rare", "flight", "flyby"),
+    ("Plane of the day", None, "potd", "dissolve"),
+    ("Clock", None, "idle", "slide"),
+]
 
 
 class TestMode:
@@ -153,10 +175,14 @@ class TestMode:
         self.until = 0
         self.custom = None
 
-    def start(self, scenario, seconds=60, custom=None):
+    def start(self, scenario, seconds=60, custom=None, now=None):
         """custom: {"callsign", "type", "alt", "dist_mi", "squawk", "military"} for scenario "custom"."""
+        now = time.time() if now is None else now
         if scenario in (None, "", "off"):
             self.scenario = None
+            return True
+        if scenario == "demo":
+            self.scenario, self.started, self.until = "demo", now, now + len(DEMO) * DEMO_STEP_S
             return True
         if scenario == "custom":
             if not custom or not custom.get("callsign"):
@@ -164,8 +190,15 @@ class TestMode:
             self.custom = custom
         elif scenario not in SCENARIOS:
             return False
-        self.scenario, self.until = scenario, time.time() + seconds
+        self.scenario, self.until = scenario, now + seconds
         return True
+
+    def demo_step(self, now):
+        """The current demo step as (label, scenario, show, transition, number), or None."""
+        if self.scenario != "demo" or now >= self.until:
+            return None
+        i = min(int((now - self.started) // DEMO_STEP_S), len(DEMO) - 1)
+        return DEMO[i] + (i + 1,)
 
     def _custom_aircraft(self):
         c = self.custom
@@ -176,8 +209,12 @@ class TestMode:
                       squawk=c.get("squawk") or "2000", t=(c.get("type") or "").upper() or None,
                       db_flags=1 if c.get("military") else 0, pos=pos)]
 
-    def inject(self, aircraft):
-        if self.scenario and time.time() < self.until:
+    def inject(self, aircraft, now=None):
+        now = time.time() if now is None else now
+        step = self.demo_step(now)
+        if step:  # demo: only the demo's own aircraft, so a real plane overhead can't interrupt it
+            return SCENARIOS[step[1]](self.home) if step[1] else []
+        if self.scenario and self.scenario != "demo" and now < self.until:
             extra = self._custom_aircraft() if self.scenario == "custom" else SCENARIOS[self.scenario](self.home)
             return aircraft + extra
         self.scenario = None

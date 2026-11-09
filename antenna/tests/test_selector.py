@@ -174,6 +174,28 @@ class FactsAndSettingsTests(unittest.TestCase):
         out = self.svc.build([dict(plane("400003", "RYR1", 0.03, 0, 4000), t="B738")], 992.0)
         self.assertEqual((out["type"], out["type_code"]), ("737-800", "B738"))
 
+    def test_demo_steps_through_every_screen(self):
+        from flightdisplay.extras import DEMO, DEMO_STEP_S
+        t0 = 10000.0
+        self.svc.test.start("demo", now=t0)
+        real = [plane("400009", "RYR9", 0.001, 0, 2000)]  # a real plane overhead must not interrupt
+        seen = []
+        for i in range(len(DEMO)):
+            out = self.svc.build(real, t0 + i * DEMO_STEP_S + 1)
+            seen.append((out["mode"], out.get("style"), (out.get("alert") or {}).get("level"),
+                         out["transitions"]))
+            self.assertTrue(out["demo"].startswith("%d/" % (i + 1)))
+        modes = [s[0] for s in seen]
+        self.assertEqual(modes[0], "idle")
+        self.assertEqual(seen[1][:3], ("flight", None, None))
+        self.assertEqual(seen[2][:2], ("card", "facts"))
+        self.assertIn(("card", "rare"), [s[:2] for s in seen])
+        self.assertIn(("card", "potd"), [s[:2] for s in seen])
+        levels = {s[2] for s in seen}
+        self.assertTrue({"rare", "military", "low", "emergency"} <= levels)
+        self.assertEqual({t for s in seen for t in s[3]}, {"flyby", "radar", "slide", "dissolve", "flap"})
+        self.assertNotIn("demo", self.svc.build(real, t0 + len(DEMO) * DEMO_STEP_S + 1))
+
     def test_settings_reject_bad_values(self):
         errs = self.svc.settings.update({"features.facts_every_s": ["999"], "display.units": ["furlongs"]})
         self.assertTrue(errs)

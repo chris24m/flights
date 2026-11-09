@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .facts import FACTS, card, panel_type, sprite_for
 from .settings import Settings
-from .extras import SCENARIOS, Stats, TestMode, Weather, brightness_at, today_str
+from .extras import DEMO, DEMO_STEP_S, SCENARIOS, Stats, TestMode, Weather, brightness_at, today_str
 from .lookups import Lookups
 from .refdata import airline_for, friendly_type
 from .selector import Aircraft, Selector, haversine_km
@@ -130,7 +130,13 @@ class Service:
         }, airline_name, ac_type
 
     def build(self, raw, now):
-        pick = self.selector.choose(self.test.inject(raw), now)
+        demo = self.test.demo_step(now)
+        injected = self.test.inject(raw, now)
+        if demo:  # show emergency squawks straight away instead of after the usual 2 s
+            for d in injected:
+                if d.get("squawk") in ("7700", "7600", "7500"):
+                    self.selector._squawk_since.setdefault(d["hex"], (d["squawk"], now - 60))
+        pick = self.selector.choose(injected, now)
 
         # Daily stats count real aircraft only, never test-mode fakes.
         home, max_age = self.cfg["home"], self.cfg["receiver"].get("max_position_age", 30)
@@ -150,8 +156,11 @@ class Service:
         feat = self.cfg.get("features", {})
         common["transitions"] = list(feat.get("transitions", []))
         common["flap"] = bool(common["transitions"])  # for older Portal code
+        if demo:
+            common["transitions"] = [demo[3]]  # show each animation in turn
+            common["demo"] = "%d/%d %s" % (demo[4], len(DEMO), demo[0])
         if pick.mode == "idle":
-            potd = self.potd_card(now, feat)
+            potd = self.potd_card(now, feat, force=demo[2] == "potd" if demo else None)
             if potd:
                 potd.update(common)
                 return potd
@@ -176,17 +185,25 @@ class Service:
             level = (pick.alert or {}).get("level")
             lines = card(ac_type)
             every = max(3, int(feat.get("facts_every_s", 8)))
-            if (feat.get("facts_page", True) and lines and level in (None, "rare", "military")
-                    and int(now / every) % 2 == 1):
+            show_card = int(now / every) % 2 == 1
+            if demo:
+                show_card = demo[2] == "card"
+            if (feat.get("facts_page", True) or demo) and lines and level in (None, "rare", "military") \
+                    and show_card:
                 out = {"mode": "card", "style": "rare" if level == "rare" else "facts", "lines": lines,
                        "col": out.get("col"), "callsign": out.get("callsign"), "airline": out.get("airline"),
                        "alert": pick.alert}
         out.update(common)
         return out
 
-    def potd_card(self, now, feat):
-        """When the sky is quiet: every N minutes, a facts card for a random type for a few seconds."""
-        if self.test.scenario == "potd":
+    def potd_card(self, now, feat, force=None):
+        """When the sky is quiet: every N minutes, a facts card for a random type for a few seconds.
+        force: True/False overrides the schedule (demo mode)."""
+        if force is not None:
+            if not force:
+                return None
+            slot, show = int(now // 30), True
+        elif self.test.scenario == "potd":
             slot, show = int(now // 30), True
         elif feat.get("potd", True):
             period = max(1, int(feat.get("potd_every_min", 10))) * 60
@@ -317,6 +334,8 @@ def make_handler(service):
                 custom = {k: q[k][0] for k in ("callsign", "type", "alt", "dist_mi", "squawk", "military")
                           if k in q} if scenario == "custom" else None
                 ok = service.test.start(scenario, seconds, custom)
+                if scenario == "demo":
+                    seconds = len(DEMO) * DEMO_STEP_S
                 if q.get("back"):  # from a button on the settings page
                     self._send_html(service.settings.page(
                         message=(f"Test '{scenario}' running for {seconds} s" if ok
@@ -324,7 +343,7 @@ def make_handler(service):
                         if scenario != "off" else "Test stopped"))
                     return
                 self._send(200 if ok else 400, {"ok": ok, "scenario": service.test.scenario,
-                                                "choices": sorted(SCENARIOS) + ["off"]})
+                                                "choices": sorted(SCENARIOS) + ["custom", "demo", "off"]})
             elif url.path == "/healthz":
                 self._send(200, {"ok": True, "receiver": service.receiver_ok})
             else:

@@ -11,6 +11,8 @@ import json
 import logging
 import os
 
+from .extras import DEMO, DEMO_STEP_S
+
 log = logging.getLogger(__name__)
 KM_PER_MILE = 1.609344
 
@@ -190,7 +192,9 @@ class Settings:
                '</label>') if self.pin else ""
         msg = f'<p class="ok">{html.escape(message)}</p>' if message else ""
         err = "".join(f'<p class="err">{html.escape(e)}</p>' for e in errors)
-        tests = " ".join(f'<a class="btn" href="/test?scenario={s}&seconds=30&back=1">{s}</a>'
+        demo = (f'<a class="btn demo" href="/test?scenario=demo&back=1">&#9654; Demo: every screen and '
+                f'animation ({len(DEMO) * DEMO_STEP_S // 60} min {len(DEMO) * DEMO_STEP_S % 60} s)</a>')
+        tests = demo + "<br>" + " ".join(f'<a class="btn" href="/test?scenario={s}&seconds=30&back=1">{s}</a>'
                          for s in ("flight", "rare", "potd", "military", "redarrows", "emergency", "low"))
         return PAGE.format(msg=msg, err=err, rows="\n".join(rows), pin=pin, tests=tests)
 
@@ -215,7 +219,7 @@ input.wide, input[name=callsign] {{ background:#0c0d10; color:var(--fg); border:
   padding:6px 8px; font-size:16px; width:120px; }} .chg {{ color:var(--acc); font-size:12px; margin-left:6px; }}
 button, .btn {{ background:var(--acc); color:#000; border:0; border-radius:8px; padding:10px 16px; font-size:16px;
   text-decoration:none; display:inline-block; margin:4px 4px 4px 0; cursor:pointer; }}
-button.secondary, .btn {{ background:#2a2e36; color:var(--fg); }}
+button.secondary, .btn {{ background:#2a2e36; color:var(--fg); }} .btn.demo {{ background:var(--acc); color:#000; }}
 .ok {{ color:var(--ok); }} .err {{ color:var(--err); }} a {{ color:var(--acc); }}
 </style></head><body><main>
 <h1>Flight display settings</h1>
