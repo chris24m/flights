@@ -49,6 +49,7 @@ EJU/EZS (easyJet Europe/Switzerland) are mapped to one file on the Pi (`LOGO_ALI
 
 - `tools/fetch_logos.py` downloads and shrinks them (add a code to its list and re-run, or `python3 fetch_logos.py ABC`).
   It picks whichever source version is brightest, since dark-on-black logos disappear on the LEDs.
+  Wide or fussy logos get zoomed in on their recognisable part via `CROPS` in the same file (BA, Finnair, FedEx, DHL, Emirates so far): add a line there to zoom any other.
 - `tools/make_logo.py some-logo.png EZY` replaces one with any image you prefer.
 - `tools/make_tails.py` draws the roundels.
 

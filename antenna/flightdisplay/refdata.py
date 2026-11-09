@@ -46,7 +46,7 @@ AIRLINES = {
 # Sister airline codes that share a logo file on the panel (display/logos/<code>.bmp).
 LOGO_ALIAS = {
     "EJU": "EZY", "EZS": "EZY", "RUK": "RYR", "SHT": "BAW", "WUK": "WZZ",
-    "BCS": "DHK", "NAX": "NOZ", "NSZ": "NOZ", "IBK": "NOZ",
+    "BCS": "DHK", "NAX": "NOZ", "NSZ": "NOZ", "IBK": "NOZ", "GEC": "DLH",
 }
 
 # readsb/ICAO type designator -> short friendly name for the idle "last seen" line
