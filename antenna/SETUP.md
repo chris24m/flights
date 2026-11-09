@@ -91,7 +91,11 @@ The display service also falls back to the UK military hex block and adsbdb.com,
 ## 7. Install the display service
 
 The repo is private, so the easiest way to get the code onto the Pi is via the SD card: before ejecting it
-after flashing, copy the repo's `antenna` folder onto the card's `bootfs` drive. Then on the Pi:
+after flashing, copy the repo's `antenna` folder onto the card's `bootfs` drive.
+
+Extra Wi-Fi networks (Dad's, a phone hotspot...): before copying, duplicate `antenna/wifi.toml.example` as
+`antenna/wifi.toml` and fill it in. `install.sh` adds them all (the Pi then joins whichever is in range).
+wifi.toml is git-ignored, so passwords stay on your Mac and the card. Then on the Pi:
 
 ```bash
 mkdir -p ~/flights && cp -r /boot/firmware/antenna ~/flights/
@@ -120,8 +124,9 @@ Logs: `journalctl -u flight-display -f`
 
 ## 8. Before handover (do these in the dress rehearsal week)
 
-- **Dad's Wi-Fi alongside yours:** `sudo nmtui` → Edit a connection → Add → Wi-Fi, enter Dad's SSID and
-  password. Both networks are remembered and the Pi joins whichever is in range.
+- **Dad's Wi-Fi alongside yours:** add it to `antenna/wifi.toml` and run `sudo bash add_wifi.sh` (or
+  `sudo nmtui` → Edit a connection → Add → Wi-Fi). All networks are remembered and the Pi joins whichever
+  is in range. Check with `nmcli connection show`.
 - **Tailscale:** `curl -fsSL https://tailscale.com/install.sh | sh` then `sudo tailscale up`, sign in from the
   link it prints. Afterwards you can `ssh pi@flighttracker` from anywhere on your tailnet.
 - **Location:** `sudo readsb-set-location <Dad's lat> <lon>` and update `config.toml`.

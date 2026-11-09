@@ -1,4 +1,5 @@
 __pycache__/
 *.pyc
 display/settings.toml
+antenna/wifi.toml
 .DS_Store
