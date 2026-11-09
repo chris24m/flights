@@ -32,8 +32,8 @@ FIELDS = [
     ("display", "units", "Show distances in", "choice", ("mi", "km")),
     ("alerts", "military_radius_km", "Military / rare alert radius (miles)", "miles", (1, 100)),
     ("brightness", "schedule", "Brightness schedule", "schedule", None),
-    ("receiver", "simulate", "Simulate receiver: made-up aircraft instead of the antenna "
-     "(for testing; untick before handover)", "bool", None),
+    ("receiver", "simulate", "Fake planes (ignore the antenna): the Pi makes up aircraft for testing. "
+     "Untick before handover!", "bool", None),
 ]
 
 FEATURE_DEFAULTS = {"facts_page": True, "facts_every_s": 8, "rare_banner": True, "potd": True,
