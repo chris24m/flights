@@ -1,0 +1,21 @@
+# Wi-Fi networks for the Pi. As many as you like: it joins whichever is in range (earlier = preferred
+# when several are). Copy this file to wifi.toml in the same folder, fill it in, then run
+#     sudo bash install.sh        (or just: sudo bash add_wifi.sh)
+# wifi.toml is in .gitignore, so the passwords never go to GitHub.
+# Networks don't need to be in range when you add them (add Dad's before you go).
+
+[[network]]
+ssid = "Your home Wi-Fi"
+password = "your password"
+
+[[network]]
+ssid = "Dad's Wi-Fi"
+password = "his password"
+
+[[network]]
+ssid = "My phone"              # a phone hotspot is a handy backup for setting up at Dad's
+password = "hotspot password"
+
+# An open network (no password): leave the password out.
+# [[network]]
+# ssid = "Some open network"

@@ -6,6 +6,9 @@ USER_NAME="${SUDO_USER:-$(whoami)}"
 
 python3 -c 'import tomllib' 2>/dev/null || { echo "Needs Python 3.11+ (Raspberry Pi OS Bookworm or newer)"; exit 1; }
 
+# Extra Wi-Fi networks (yours, Dad's, a hotspot...) from wifi.toml, if there is one.
+bash "$DIR/add_wifi.sh" || echo "Wi-Fi setup had a problem (see above); carrying on"
+
 mkdir -p /var/lib/flight-display
 chown "$USER_NAME" /var/lib/flight-display
 
