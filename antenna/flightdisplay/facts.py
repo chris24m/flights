@@ -90,3 +90,19 @@ def card(type_code):
         return None
     name, speed, ceiling, year, extra = f
     return [name, speed, f"CEILING {ceiling}FT", f"FIRST FLEW {year}", extra]
+
+
+# Top-down sprite for the fly-by transition (drawn on the Portal): twin / quad / prop / fighter / heli.
+SPRITE = {}
+for _t in ("A388", "B744", "B748", "A400", "C17", "A124", "B52", "LANC", "B17", "C130", "A343", "A346"):
+    SPRITE[_t] = "quad"
+for _t in ("SPIT", "HURI", "P51", "DH82", "T6", "C152", "C172", "PA28", "SR22", "DA40", "DC3"):
+    SPRITE[_t] = "prop"
+for _t in ("EUFI", "F35", "HAWK", "TOR", "F15", "F16", "F18"):
+    SPRITE[_t] = "fighter"
+for _t in ("EC35", "EC45", "A109", "A169", "A189", "S92", "H47", "AS65", "EC30", "R44", "R22", "B06", "AW39"):
+    SPRITE[_t] = "heli"
+
+
+def sprite_for(type_code):
+    return SPRITE.get((type_code or "").upper(), "twin")

@@ -151,19 +151,35 @@ class TestMode:
         self.home = home
         self.scenario = None
         self.until = 0
+        self.custom = None
 
-    def start(self, scenario, seconds=60):
+    def start(self, scenario, seconds=60, custom=None):
+        """custom: {"callsign", "type", "alt", "dist_mi", "squawk", "military"} for scenario "custom"."""
         if scenario in (None, "", "off"):
             self.scenario = None
             return True
-        if scenario not in SCENARIOS:
+        if scenario == "custom":
+            if not custom or not custom.get("callsign"):
+                return False
+            self.custom = custom
+        elif scenario not in SCENARIOS:
             return False
         self.scenario, self.until = scenario, time.time() + seconds
         return True
 
+    def _custom_aircraft(self):
+        c = self.custom
+        dist_km = float(c.get("dist_mi") or 1) * 1.609344
+        pos = c.get("dist_mi") not in ("", "none", None) or not c.get("military")
+        return [_fake(self.home, "7e57ed", c["callsign"].upper()[:8], dist_km / 111.0, 0,
+                      int(c.get("alt") or 3000), int(c.get("spd") or 200), int(c.get("trk") or 90),
+                      squawk=c.get("squawk") or "2000", t=(c.get("type") or "").upper() or None,
+                      db_flags=1 if c.get("military") else 0, pos=pos)]
+
     def inject(self, aircraft):
         if self.scenario and time.time() < self.until:
-            return aircraft + SCENARIOS[self.scenario](self.home)
+            extra = self._custom_aircraft() if self.scenario == "custom" else SCENARIOS[self.scenario](self.home)
+            return aircraft + extra
         self.scenario = None
         return aircraft
 

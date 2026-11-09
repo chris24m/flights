@@ -42,6 +42,26 @@ Serial console (`screen /dev/tty.usbmodem* 115200`, or Mu / Thonny) shows the er
 
 Use the Pi's test mode to see each one: `curl "http://<pi-ip>:8080/test?scenario=military"`.
 
+## Transitions
+
+When the screen changes, one of these plays, picked at random from the ones ticked on the Pi's
+settings page (none ticked = instant):
+
+| Name | What it does |
+|---|---|
+| flyby | a top-down plane (twin jet, 4-engine, prop, fighter or helicopter, picked from the type) flies across the way the aircraft is heading: eastbound left to right, westbound right to left. A `>`-shaped black band clears the old screen ahead of it and reveals the new one behind its tail. When a plane leaves, it flies off. |
+| radar | a green radar line sweeps clockwise from 12 o'clock, revealing the new screen |
+| slide | departure-board scroll in a random direction (up, down, left or right) |
+| dissolve | sparkle from one screen to the other |
+| flap | split-flap letters (also used between a plane's details and its facts card, whatever the setting) |
+
+The fly-by, radar, slide and dissolve work by copying the panel's current picture into a full-screen
+bitmap and eating it away. If the panel ever shows them in odd colours, add `SNAP_SWAPPED = 1` to
+`settings.toml`; if anything about them goes wrong the Portal falls back to the flap and notes the
+error (visible on the Pi's /debug page).
+Each animation runs for a fixed time (about 0.6 to 1.8 s): if the Portal draws slowly it just
+shows fewer, bigger steps. The frame rate of the last one is reported to the Pi's /debug page (`tfps`).
+
 ## Logos
 
 `logos/` has real airline logos shrunk to 16×16 for about 60 airlines (easyJet, Ryanair, BA, TUI, Jet2,

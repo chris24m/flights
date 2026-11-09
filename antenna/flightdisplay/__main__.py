@@ -19,7 +19,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from .facts import FACTS, card
+from .facts import FACTS, card, sprite_for
 from .settings import Settings
 from .extras import SCENARIOS, Stats, TestMode, Weather, brightness_at, today_str
 from .lookups import Lookups
@@ -125,6 +125,7 @@ class Service:
             "dist_txt": fmt_dist(ac.dist_km, units),
             "squawk": ac.squawk,
             "alert": pick.alert,
+            "sprite": sprite_for(ac_type),
         }, airline_name, ac_type
 
     def build(self, raw, now):
@@ -146,7 +147,8 @@ class Service:
             "status": "ok" if self.receiver_ok else "receiver offline",
         }
         feat = self.cfg.get("features", {})
-        common["flap"] = bool(feat.get("flap", True))
+        common["transitions"] = list(feat.get("transitions", []))
+        common["flap"] = bool(common["transitions"])  # for older Portal code
         if pick.mode == "idle":
             potd = self.potd_card(now, feat)
             if potd:
@@ -311,11 +313,14 @@ def make_handler(service):
                 q = parse_qs(url.query)
                 scenario = q.get("scenario", ["off"])[0]
                 seconds = int(q.get("seconds", ["60"])[0])
-                ok = service.test.start(scenario, seconds)
+                custom = {k: q[k][0] for k in ("callsign", "type", "alt", "dist_mi", "squawk", "military")
+                          if k in q} if scenario == "custom" else None
+                ok = service.test.start(scenario, seconds, custom)
                 if q.get("back"):  # from a button on the settings page
                     self._send_html(service.settings.page(
-                        message=f"Test '{scenario}' running for {seconds} s" if scenario != "off" and ok
-                        else "Test stopped"))
+                        message=(f"Test '{scenario}' running for {seconds} s" if ok
+                                 else f"Test '{scenario}' not started: check the fields")
+                        if scenario != "off" else "Test stopped"))
                     return
                 self._send(200 if ok else 400, {"ok": ok, "scenario": service.test.scenario,
                                                 "choices": sorted(SCENARIOS) + ["off"]})
