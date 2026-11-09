@@ -42,7 +42,7 @@ DEBUG = int(os.getenv("DEBUG") or 0)
 # Departure-board "flap" animation when the screen changes (new aircraft, clock <-> flight). 0 = off.
 FLAP = int(os.getenv("FLAP") if os.getenv("FLAP") is not None else 1)
 # Screen-change animation until the Pi says otherwise (its settings page has the same choice):
-# random / flyby / flap / page / slide / dissolve / none
+# random / flyby / flap / radar / slide / dissolve / none
 TRANSITION = os.getenv("TRANSITION") or ("random" if FLAP else "none")
 # If the transitions show odd colours on the real panel, set SNAP_SWAPPED = 1 (byte order of the snapshot).
 SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
@@ -464,10 +464,26 @@ def _fill(x1, x2, y, value, flip):
     bitmaptools.fill_region(snap, x1, y, x2, y + 1, value)
 
 
-def _frame():
-    wdt.feed()
+TRANSITION_STATS = {"fps": 0}  # frames per second of the last transition, reported to the Pi
+
+
+def _frames(seconds):
+    """Yield progress 0..1 for `seconds`, redrawing the panel after each step. Time-based, so a
+    slower Portal shows fewer, bigger steps but every animation still takes the same time."""
+    t0 = time.monotonic()
+    n = 0
+    while True:
+        t = (time.monotonic() - t0) / seconds
+        if t >= 1:
+            break
+        yield t
+        wdt.feed()
+        display.refresh()
+        n += 1
+    yield 1.0
     display.refresh()
-    time.sleep(0.012)
+    TRANSITION_STATS["fps"] = round(n / seconds)
+    dbg("transition: %d frames in %.1fs" % (n, seconds))
 
 
 def run_flyby(sprite, tail, flip):
@@ -483,37 +499,67 @@ def run_flyby(sprite, tail, flip):
     tg.flip_x = flip
     tg.y = (32 - h) // 2
     sprite_g.append(tg)
-    for sx in range(-w - 18, 64 + 20, 2):  # sprite's left edge, as if flying left to right
+    first, last = -w - 18, 64 + 20  # sprite's left edge at the start and end, as if flying left to right
+    for t in _frames(1.8):
+        sx = int(first + (last - first) * t)
         front, rear = sx + w + 2, sx - 2
         for y in range(32):
             off = int(abs(y - 15.5))
             _fill(rear - off, front - off, y, 0, flip)   # black band
             _fill(-99, rear - off, y, TRANS, flip)       # new screen behind
         tg.x = 64 - sx - w if flip else sx
-        _frame()
-    sprite_g.pop()
 
 
-def run_page():
-    """Page turn: the old screen folds away right to left; its grey underside is the fold."""
-    shades = [rgb565(dim(c)) for c in (0x303030, 0x585858, 0x808080, 0xA8A8A8, 0xD0D0D0)]
-    for f in range(64 + 24, -8, -3):
-        for y in range(32):
-            fy = f - y // 2                 # the bottom corner turns first
-            for i, c in enumerate(shades):
-                _fill(fy - 5 + i, fy - 4 + i, y, c, False)
-            _fill(fy, 64, y, TRANS, False)
-        _frame()
+_radar = None  # (pixel order sorted by angle, start of each angle bucket)
+RADAR_STEPS = 72
+
+
+def run_radar():
+    """Radar sweep: a green line sweeps clockwise from 12 o'clock, revealing the new screen."""
+    global _radar
+    if _radar is None:
+        import array
+        import math
+        bucket = bytearray(2048)
+        counts = [0] * (RADAR_STEPS + 1)
+        for i in range(2048):
+            x, y = i % 64 - 31.5, i // 64 - 15.5
+            a = math.atan2(x, -y)  # 0 = straight up, clockwise
+            b = int((a % (2 * math.pi)) / (2 * math.pi) * RADAR_STEPS) % RADAR_STEPS
+            bucket[i] = b
+            counts[b + 1] += 1
+        for b in range(RADAR_STEPS):
+            counts[b + 1] += counts[b]
+        order = array.array("H", range(2048))
+        fill = list(counts)
+        for i in range(2048):
+            order[fill[bucket[i]]] = i
+            fill[bucket[i]] += 1
+        _radar = (order, counts)
+        del bucket, fill
+        gc.collect()
+    order, starts = _radar
+    beam = rgb565(dim(GREEN))
+    done = 0  # buckets fully revealed
+    for t in _frames(1.2):
+        upto = int(t * RADAR_STEPS)
+        for b in range(done, upto):
+            for k in range(starts[b], starts[b + 1]):
+                snap[order[k]] = TRANS
+        done = max(done, upto)
+        if done < RADAR_STEPS:
+            for k in range(starts[done], starts[done + 1]):
+                snap[order[k]] = beam
 
 
 def run_slide(group):
-    """Departure-board scroll: the old screen slides up and off, the new one rises from below."""
-    for k in range(2, 33, 2):
-        snap_tg.y = -k
-        group.y = 32 - k
-        _frame()
-    snap_tg.y = 0
-    group.y = 0
+    """Departure-board scroll in a random direction: the old screen slides off, the new one follows."""
+    dx, dy = random.choice(((0, -1), (0, 1), (-1, 0), (1, 0)))
+    size = 64 if dx else 32
+    for t in _frames(0.6 if dy else 0.9):
+        k = int(size * t)
+        snap_tg.x, snap_tg.y = dx * k, dy * k
+        group.x, group.y = dx * (k - size), dy * (k - size)
 
 
 _order = None
@@ -529,23 +575,26 @@ def run_dissolve():
             j = random.randrange(i + 1)
             _order[i], _order[j] = _order[j], _order[i]
         gc.collect()
-    start = random.randrange(2048)
-    for f in range(16):
-        for k in range(f * 128, f * 128 + 128):
+    start, done = random.randrange(2048), 0
+    for t in _frames(0.8):
+        upto = int(t * 2048)
+        for k in range(done, upto):
             snap[_order[(start + k) % 2048]] = TRANS
-        _frame()
+        done = max(done, upto)
 
 
-OVERLAY_KINDS = ("flyby", "page", "slide", "dissolve")
+OVERLAY_KINDS = ("flyby", "radar", "slide", "dissolve")
 
 
 def choose_transition(setting, has_plane):
     if setting == "random":
-        pool = ["flyby", "flyby", "flap", "page", "slide", "dissolve"] if has_plane else \
-            ["flap", "page", "slide", "dissolve"]
+        pool = ["flyby", "flyby", "flap", "radar", "slide", "dissolve"] if has_plane else \
+            ["flap", "radar", "slide", "dissolve"]
         return random.choice(pool)
     if setting == "flyby" and not has_plane:
         return "flap"  # nothing to fly: e.g. clock -> plane of the day
+    if setting == "page":
+        setting = "radar"  # page turn was replaced by the radar sweep
     return setting if setting in OVERLAY_KINDS + ("flap", "none") else "flap"
 
 
@@ -555,8 +604,8 @@ def run_transition(kind, group, plane):
         display.auto_refresh = False
         if kind == "flyby":
             run_flyby(*plane)
-        elif kind == "page":
-            run_page()
+        elif kind == "radar":
+            run_radar()
         elif kind == "slide":
             run_slide(group)
         elif kind == "dissolve":
@@ -566,8 +615,8 @@ def run_transition(kind, group, plane):
     finally:
         while len(sprite_g):
             sprite_g.pop()
-        snap_tg.y = 0
-        group.y = 0
+        snap_tg.x = snap_tg.y = 0
+        group.x = group.y = 0
         overlay_g.hidden = True
         display.auto_refresh = True
 
@@ -785,6 +834,8 @@ def report_query():
     up = int(time.monotonic())
     q = "portal=%s&ip=%s&rssi=%s&ssid=%s&via=%s&fails=%d&up=%d&reset=%s" % (
         VERSION, STATE["ip"], STATE["rssi"], quote(STATE["ssid"]), STATE["via"], STATE["fails"], up, RESET_REASON)
+    if TRANSITION_STATS["fps"]:
+        q += "&tfps=%d" % TRANSITION_STATS["fps"]
     if STATE["err"]:
         q += "&err=" + quote(STATE["err"])
     return q

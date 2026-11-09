@@ -24,7 +24,7 @@ FIELDS = [
     ("features", "potd_every_min", "Plane of the day every (minutes)", "int", (1, 240)),
     ("features", "potd_show_s", "Plane of the day stays up for (seconds)", "int", (5, 120)),
     ("features", "transition", "Screen change animation", "choice",
-     ("random", "flyby", "flap", "page", "slide", "dissolve", "none")),
+     ("random", "flyby", "flap", "radar", "slide", "dissolve", "none")),
     ("display", "radius_km", "Overhead radius (miles)", "miles", (0.5, 50)),
     ("display", "units", "Show distances in", "choice", ("mi", "km")),
     ("alerts", "military_radius_km", "Military / rare alert radius (miles)", "miles", (1, 100)),
