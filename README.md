@@ -27,7 +27,7 @@ Pro Stick Plus ─USB─ Pi 3B (readsb → aircraft.json → flight display serv
 (with `date`, `weather`, `last`, `today`, `furthest_km`).
 
 Settings page (from a phone, at home or over Tailscale): **http://flighttracker:8080/settings**:
-facts page, rare-plane banner, plane of the day, radius, units, brightness schedule, flap animation,
+facts page, rare-plane banner, plane of the day, radius, units, brightness schedule, screen transitions (fly-by plane, page turn, slide, sparkle, flap or random),
 and buttons to test each screen. Changes apply within seconds and are saved on the Pi.
 
 Debug tools for both sides: [DEBUGGING.md](DEBUGGING.md)

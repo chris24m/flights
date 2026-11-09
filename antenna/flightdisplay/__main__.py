@@ -19,7 +19,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from .facts import FACTS, card
+from .facts import FACTS, card, sprite_for
 from .settings import Settings
 from .extras import SCENARIOS, Stats, TestMode, Weather, brightness_at, today_str
 from .lookups import Lookups
@@ -125,6 +125,7 @@ class Service:
             "dist_txt": fmt_dist(ac.dist_km, units),
             "squawk": ac.squawk,
             "alert": pick.alert,
+            "sprite": sprite_for(ac_type),
         }, airline_name, ac_type
 
     def build(self, raw, now):
@@ -146,7 +147,8 @@ class Service:
             "status": "ok" if self.receiver_ok else "receiver offline",
         }
         feat = self.cfg.get("features", {})
-        common["flap"] = bool(feat.get("flap", True))
+        common["transition"] = feat.get("transition", "random")
+        common["flap"] = common["transition"] != "none"  # for older Portal code
         if pick.mode == "idle":
             potd = self.potd_card(now, feat)
             if potd:

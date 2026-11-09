@@ -142,12 +142,13 @@ class FactsAndSettingsTests(unittest.TestCase):
         st = self.svc.settings
         form = {"features.facts_page": ["0"], "features.facts_every_s": ["8"], "features.rare_banner": ["0", "1"],
                 "features.potd": ["0", "1"], "features.potd_every_min": ["5"], "features.potd_show_s": ["20"],
-                "features.flap": ["0"], "display.radius_km": ["5"], "display.units": ["km"],
+                "features.transition": ["page"], "display.radius_km": ["5"], "display.units": ["km"],
                 "alerts.military_radius_km": ["25"],
                 "brightness.schedule.t0": ["08:00"], "brightness.schedule.v0": ["50"],
                 "brightness.schedule.t1": ["23:00"], "brightness.schedule.v1": ["0"]}
         self.assertEqual(st.update(form), [])
         self.assertFalse(self.svc.cfg["features"]["facts_page"])
+        self.assertEqual(self.svc.build([], 5.0)["transition"], "page")
         self.assertAlmostEqual(self.svc.cfg["display"]["radius_km"], 8.05, places=1)
         self.assertEqual(self.svc.cfg["brightness"]["schedule"], [["08:00", 0.5], ["23:00", 0.0]])
         raw = [dict(plane("400001", "EZY45T", 0.03, 0, 4000), t="A320")]
@@ -156,6 +157,13 @@ class FactsAndSettingsTests(unittest.TestCase):
         st.reset()
         self.assertTrue(self.svc.cfg["features"]["facts_page"])
         self.assertEqual(self.svc.cfg["display"]["radius_km"], CFG["display"]["radius_km"])
+
+    def test_flyby_sprite_and_direction_data(self):
+        out = self.svc.build([dict(plane("400001", "BAW1", 0.03, 0, 4000), t="B744", track=260)], 992.0)
+        self.assertEqual((out["sprite"], out["trk"]), ("quad", 260))
+        out = self.svc.build([dict(plane("400002", "EZY1", 0.03, 0, 4000), t="A320")], 992.0)
+        self.assertEqual(out["sprite"], "twin")
+        self.assertIn(out["transition"], ("random", "flyby", "flap", "page", "slide", "dissolve", "none"))
 
     def test_settings_reject_bad_values(self):
         errs = self.svc.settings.update({"features.facts_every_s": ["999"], "display.units": ["furlongs"]})

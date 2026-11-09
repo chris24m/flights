@@ -23,7 +23,8 @@ FIELDS = [
     ("features", "potd", "Plane of the day when the sky is quiet", "bool", None),
     ("features", "potd_every_min", "Plane of the day every (minutes)", "int", (1, 240)),
     ("features", "potd_show_s", "Plane of the day stays up for (seconds)", "int", (5, 120)),
-    ("features", "flap", "Airport-board flap animation", "bool", None),
+    ("features", "transition", "Screen change animation", "choice",
+     ("random", "flyby", "flap", "page", "slide", "dissolve", "none")),
     ("display", "radius_km", "Overhead radius (miles)", "miles", (0.5, 50)),
     ("display", "units", "Show distances in", "choice", ("mi", "km")),
     ("alerts", "military_radius_km", "Military / rare alert radius (miles)", "miles", (1, 100)),
@@ -31,12 +32,14 @@ FIELDS = [
 ]
 
 FEATURE_DEFAULTS = {"facts_page": True, "facts_every_s": 8, "rare_banner": True, "potd": True,
-                    "potd_every_min": 10, "potd_show_s": 20, "flap": True}
+                    "potd_every_min": 10, "potd_show_s": 20, "transition": "random"}
 
 
 class Settings:
     def __init__(self, cfg, state_dir):
         cfg.setdefault("features", {})
+        if cfg["features"].get("flap") is False and "transition" not in cfg["features"]:
+            cfg["features"]["transition"] = "none"  # older config.toml with flap = false
         for k, v in FEATURE_DEFAULTS.items():
             cfg["features"].setdefault(k, v)
         cfg["display"].setdefault("units", "mi")

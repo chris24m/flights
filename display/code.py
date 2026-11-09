@@ -8,6 +8,7 @@ import os
 import random
 import time
 
+import bitmaptools
 import board
 import busio
 import displayio
@@ -40,6 +41,11 @@ POLL_SECONDS = float(os.getenv("POLL_SECONDS") or 3)
 DEBUG = int(os.getenv("DEBUG") or 0)
 # Departure-board "flap" animation when the screen changes (new aircraft, clock <-> flight). 0 = off.
 FLAP = int(os.getenv("FLAP") if os.getenv("FLAP") is not None else 1)
+# Screen-change animation until the Pi says otherwise (its settings page has the same choice):
+# random / flyby / flap / page / slide / dissolve / none
+TRANSITION = os.getenv("TRANSITION") or ("random" if FLAP else "none")
+# If the transitions show odd colours on the real panel, set SNAP_SWAPPED = 1 (byte order of the snapshot).
+SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 VERSION = "2026.11.09"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
@@ -305,6 +311,267 @@ err_scroll = Scroller(d_lines[4])
 root.append(diag_g)
 
 
+# --- screen transitions --------------------------------------------------------------
+# How they work: just before the screen changes, copy what the panel is showing (the old screen)
+# into `snap`, a full-screen bitmap drawn on top of everything. Then draw the new screen
+# underneath as normal, and eat away the snapshot frame by frame: pixels set to TRANS let
+# the new screen show through, pixels set to 0 are black. A plane sprite can fly on top.
+
+TRANS = 0x0020  # "see-through" RGB565 value; dim() never produces it (green this faint is never used)
+fb = display.framebuffer
+snap = displayio.Bitmap(64, 32, 65536)
+try:
+    snap_cc = displayio.ColorConverter(
+        input_colorspace=displayio.Colorspace.RGB565_SWAPPED if SNAP_SWAPPED else displayio.Colorspace.RGB565)
+    snap_cc.make_transparent(TRANS)
+    CAN_SNAP = True
+except Exception as e:  # noqa: BLE001 - very old CircuitPython: fall back to the flap
+    snap_cc = displayio.ColorConverter()
+    CAN_SNAP = False
+    note_error("no transitions: %r" % e)
+snap_tg = displayio.TileGrid(snap, pixel_shader=snap_cc)
+overlay_g = displayio.Group()
+overlay_g.append(snap_tg)
+overlay_g.hidden = True
+
+# Top-down sprites with the nose pointing right (mirrored for right-to-left).
+# W body, G wing, E engine, K cockpit, R rotor, C tail (airline colour).
+
+
+def _sym(top, mid):
+    return top + mid + top[::-1]
+
+
+SPRITE_ART = {
+    "twin": _sym([
+        "......GGG.................",
+        ".......GGG................",
+        "........GGG...............",
+        ".........GGGG.............",
+        "..........GGGEEE..........",
+        "GG.........GGGGEE.........",
+        ".GG.........GGGGG.........",
+    ], [
+        ".CWWWWWWWWWWWWWWWWWWWWWWW.",
+        "CCWWWWWWWWWWWWWWWWWWWWWWKW",
+        ".CWWWWWWWWWWWWWWWWWWWWWWW.",
+    ]),
+    "quad": _sym([
+        ".....GGG....................",
+        "......GGGEE.................",
+        ".......GGGEE................",
+        "........GGGG................",
+        ".........GGGG...............",
+        "..........GGGEEE............",
+        "GG.........GGGGEE...........",
+        ".GG.........GGGGG...........",
+    ], [
+        ".CWWWWWWWWWWWWWWWWWWWWWWWWW.",
+        "CCWWWWWWWWWWWWWWWWWWWWWWWWKW",
+        ".CWWWWWWWWWWWWWWWWWWWWWWWWW.",
+    ]),
+    "prop": _sym([
+        "........GGG.....",
+        ".......GGGGG....",
+        "G......GGGGGG...",
+        "GG.....GGGGGG...",
+    ], [
+        ".WWWWWWWWWWWWWE.",
+        "CWWWWWWWWWKWWWWER",
+        ".WWWWWWWWWWWWWE.",
+    ]),
+    "fighter": _sym([
+        "...GG............",
+        "...GGGG..........",
+        "...GGGGGG........",
+        "C..GGGGGGGG......",
+    ], [
+        "CWWWWWWWWWWWWWW..",
+        "CCWWWWWWWWWWWKWWW",
+        "CWWWWWWWWWWWWWW..",
+    ]),
+    "heli": [
+        "..R.............R...",
+        "...R...........R....",
+        "....R.........R.....",
+        ".....R.......R......",
+        "......R.....R.......",
+        ".......R.WWR........",
+        "C.......RWRWWW......",
+        "CWWWWWWWWRWWWKW.....",
+        "C.......RWRWWW......",
+        ".......R.WWR........",
+        "......R.....R.......",
+        ".....R.......R......",
+        "....R.........R.....",
+        "...R...........R....",
+        "..R.............R...",
+    ],
+}
+SPRITE_KEYS = ".WGEKRC"
+SPRITE_COLOURS = [None, 0xEBEBEB, 0x646473, 0xBEBEC8, 0x0078C8, 0xA0A0AA, WHITE]
+sprite_pal = displayio.Palette(len(SPRITE_KEYS))
+sprite_pal.make_transparent(0)
+SPRITES = {}
+for _name, _art in SPRITE_ART.items():
+    _w = max(len(r) for r in _art)
+    _bmp = displayio.Bitmap(_w, len(_art), len(SPRITE_KEYS))
+    for _y, _row in enumerate(_art):
+        for _x, _ch in enumerate(_row):
+            _bmp[_x, _y] = SPRITE_KEYS.index(_ch)
+    SPRITES[_name] = _bmp
+del SPRITE_ART
+sprite_g = displayio.Group()
+overlay_g.append(sprite_g)
+root.append(overlay_g)
+
+
+def rgb565(rgb):
+    return ((rgb >> 8) & 0xF800) | ((rgb >> 5) & 0x07E0) | ((rgb >> 3) & 0x001F)
+
+
+def take_snapshot():
+    """Copy the panel's current picture into `snap`. False if the framebuffer can't be read."""
+    if not CAN_SNAP:
+        return False
+    try:
+        mv = memoryview(fb)
+        n = len(mv)
+        if n == 2048:          # 16-bit elements
+            for i in range(2048):
+                v = mv[i]
+                snap[i] = TRANS ^ 0x0040 if v == TRANS else v  # never see-through by accident
+        elif n == 4096:        # bytes, little-endian RGB565
+            for i in range(2048):
+                v = mv[2 * i] | (mv[2 * i + 1] << 8)
+                snap[i] = TRANS ^ 0x0040 if v == TRANS else v
+        else:
+            note_error("framebuffer size %d" % n)
+            return False
+    except Exception as e:  # noqa: BLE001
+        note_error("snapshot: %r" % e)
+        return False
+    return True
+
+
+def _fill(x1, x2, y, value, flip):
+    """Fill row y from x1 to x2 (exclusive), mirrored when the plane flies right to left."""
+    x1, x2 = max(0, x1), min(64, x2)
+    if x1 >= x2:
+        return
+    if flip:
+        x1, x2 = 64 - x2, 64 - x1
+    bitmaptools.fill_region(snap, x1, y, x2, y + 1, value)
+
+
+def _frame():
+    wdt.feed()
+    display.refresh()
+    time.sleep(0.012)
+
+
+def run_flyby(sprite, tail, flip):
+    """A plane flies across: a '>'-shaped black band clears the old screen ahead of it and the
+    new screen is revealed behind its tail."""
+    bmp = SPRITES.get(sprite) or SPRITES["twin"]
+    w, h = bmp.width, bmp.height
+    sprite_pal[SPRITE_KEYS.index("C")] = dim(tail)
+    for i, c in enumerate(SPRITE_COLOURS):
+        if c is not None and SPRITE_KEYS[i] != "C":
+            sprite_pal[i] = dim(c)
+    tg = displayio.TileGrid(bmp, pixel_shader=sprite_pal)
+    tg.flip_x = flip
+    tg.y = (32 - h) // 2
+    sprite_g.append(tg)
+    for sx in range(-w - 18, 64 + 20, 2):  # sprite's left edge, as if flying left to right
+        front, rear = sx + w + 2, sx - 2
+        for y in range(32):
+            off = int(abs(y - 15.5))
+            _fill(rear - off, front - off, y, 0, flip)   # black band
+            _fill(-99, rear - off, y, TRANS, flip)       # new screen behind
+        tg.x = 64 - sx - w if flip else sx
+        _frame()
+    sprite_g.pop()
+
+
+def run_page():
+    """Page turn: the old screen folds away right to left; its grey underside is the fold."""
+    shades = [rgb565(dim(c)) for c in (0x303030, 0x585858, 0x808080, 0xA8A8A8, 0xD0D0D0)]
+    for f in range(64 + 24, -8, -3):
+        for y in range(32):
+            fy = f - y // 2                 # the bottom corner turns first
+            for i, c in enumerate(shades):
+                _fill(fy - 5 + i, fy - 4 + i, y, c, False)
+            _fill(fy, 64, y, TRANS, False)
+        _frame()
+
+
+def run_slide(group):
+    """Departure-board scroll: the old screen slides up and off, the new one rises from below."""
+    for k in range(2, 33, 2):
+        snap_tg.y = -k
+        group.y = 32 - k
+        _frame()
+    snap_tg.y = 0
+    group.y = 0
+
+
+_order = None
+
+
+def run_dissolve():
+    """Sparkle: the old screen dissolves pixel by pixel into the new one."""
+    global _order
+    if _order is None:
+        import array
+        _order = array.array("H", range(2048))
+        for i in range(2047, 0, -1):
+            j = random.randrange(i + 1)
+            _order[i], _order[j] = _order[j], _order[i]
+        gc.collect()
+    start = random.randrange(2048)
+    for f in range(16):
+        for k in range(f * 128, f * 128 + 128):
+            snap[_order[(start + k) % 2048]] = TRANS
+        _frame()
+
+
+OVERLAY_KINDS = ("flyby", "page", "slide", "dissolve")
+
+
+def choose_transition(setting, has_plane):
+    if setting == "random":
+        pool = ["flyby", "flyby", "flap", "page", "slide", "dissolve"] if has_plane else \
+            ["flap", "page", "slide", "dissolve"]
+        return random.choice(pool)
+    if setting == "flyby" and not has_plane:
+        return "flap"  # nothing to fly: e.g. clock -> plane of the day
+    return setting if setting in OVERLAY_KINDS + ("flap", "none") else "flap"
+
+
+def run_transition(kind, group, plane):
+    """Called after the new screen has been drawn underneath the snapshot."""
+    try:
+        display.auto_refresh = False
+        if kind == "flyby":
+            run_flyby(*plane)
+        elif kind == "page":
+            run_page()
+        elif kind == "slide":
+            run_slide(group)
+        elif kind == "dissolve":
+            run_dissolve()
+    except Exception as e:  # noqa: BLE001 - a broken animation must never stop the display
+        note_error("transition %s: %r" % (kind, e))
+    finally:
+        while len(sprite_g):
+            sprite_g.pop()
+        snap_tg.y = 0
+        group.y = 0
+        overlay_g.hidden = True
+        display.auto_refresh = True
+
+
 def show_diagnostics(now):
     global brightness
     brightness = max(brightness, 0.3)
@@ -364,18 +631,47 @@ ALERT_STYLE = {  # level: (banner bg, text, stripe colour, flash period in s or 
 
 
 last_scene = None
+last_plane = None  # (sprite, tail colour, right-to-left) of the last aircraft shown, for fly-offs
+
+
+def plane_of(d):
+    """What a fly-by should draw for this screen, or None if there's no aircraft on it."""
+    if not d.get("sprite"):
+        return None
+    alert = d.get("alert") or {}
+    tail = parse_colour(d.get("col"), RED if alert.get("level") in ("military", "emergency") else WHITE)
+    trk = d.get("trk")
+    return (d["sprite"], tail, trk is not None and 180 <= trk < 360)  # heading west: right to left
 
 
 def draw(d, now):
-    global brightness, animate_now, last_scene, FLAP
+    global brightness, animate_now, last_scene, last_plane, FLAP, TRANSITION
     alert = d.get("alert") or {}
     scene = (d.get("mode"), d.get("callsign"), alert.get("text"))
-    animate_now = scene != last_scene  # new aircraft or screen: flap everything once
-    last_scene = scene
+    prev, last_scene = last_scene, scene
     brightness = float(d.get("brightness", 0.5))
-    if "flap" in d:  # the Pi's settings page can switch the animation on/off
-        FLAP = 1 if d["flap"] else 0
+    if "transition" in d:  # the Pi's settings page chooses the animation
+        TRANSITION = d["transition"] or "none"
+    elif "flap" in d:  # older Pi code: flap on/off only
+        TRANSITION = "flap" if d["flap"] else "none"
+    FLAP = 0 if TRANSITION == "none" else 1
     root.hidden = brightness <= 0
+
+    kind, plane = None, plane_of(d)
+    if scene != prev and prev is not None and not root.hidden and TRANSITION != "none":
+        if prev[1] and prev[1] == scene[1]:
+            kind = "flap"  # same aircraft, flight details <-> facts card: keep it calm
+        else:
+            plane = plane or last_plane  # arriving plane flies in; a departing one flies off
+            kind = choose_transition(TRANSITION, plane is not None)
+        if kind in OVERLAY_KINDS:
+            if take_snapshot():
+                overlay_g.hidden = False  # the old screen stays up (frozen) while we redraw underneath
+            else:
+                kind = "flap"
+    animate_now = kind == "flap"  # new aircraft or screen: flap everything once
+    if plane_of(d):
+        last_plane = plane_of(d)
     mode = d.get("mode")
     if mode == "flight":
         col = parse_colour(d.get("col"), WHITE)
@@ -420,6 +716,9 @@ def draw(d, now):
             set_text(i_stats, "FURTHEST " + (d.get("furthest_txt") or "%sKM" % d.get("furthest_km", 0)),
                      animate=False)
         show_only(idle_g)
+    if kind in OVERLAY_KINDS:
+        group = next((g for g in (flight_g, alert_g, idle_g, card_g) if not g.hidden), idle_g)
+        run_transition(kind, group, plane)
 
 
 # --- Wi-Fi ---------------------------------------------------------------------

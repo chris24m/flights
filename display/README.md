@@ -42,6 +42,24 @@ Serial console (`screen /dev/tty.usbmodem* 115200`, or Mu / Thonny) shows the er
 
 Use the Pi's test mode to see each one: `curl "http://<pi-ip>:8080/test?scenario=military"`.
 
+## Transitions
+
+When the screen changes, one of these plays (chosen on the Pi's settings page; `random` mixes them):
+
+| Name | What it does |
+|---|---|
+| flyby | a top-down plane (twin jet, 4-engine, prop, fighter or helicopter, picked from the type) flies across the way the aircraft is heading: eastbound left to right, westbound right to left. A `>`-shaped black band clears the old screen ahead of it and reveals the new one behind its tail. When a plane leaves, it flies off. |
+| page | page turn: the old screen folds away right to left |
+| slide | departure-board scroll: old screen slides up, new one rises from below |
+| dissolve | sparkle from one screen to the other |
+| flap | split-flap letters (also used between a plane's details and its facts card, whatever the setting) |
+| none | instant |
+
+The fly-by, page, slide and dissolve work by copying the panel's current picture into a full-screen
+bitmap and eating it away. If the panel ever shows them in odd colours, add `SNAP_SWAPPED = 1` to
+`settings.toml`; if anything about them goes wrong the Portal falls back to the flap and notes the
+error (visible on the Pi's /debug page).
+
 ## Logos
 
 `logos/` has real airline logos shrunk to 16×16 for about 60 airlines (easyJet, Ryanair, BA, TUI, Jet2,
