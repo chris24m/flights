@@ -32,6 +32,8 @@ FIELDS = [
     ("display", "units", "Show distances in", "choice", ("mi", "km")),
     ("alerts", "military_radius_km", "Military / rare alert radius (miles)", "miles", (1, 100)),
     ("brightness", "schedule", "Brightness schedule", "schedule", None),
+    ("receiver", "simulate", "Simulate receiver: made-up aircraft instead of the antenna "
+     "(for testing; untick before handover)", "bool", None),
 ]
 
 FEATURE_DEFAULTS = {"facts_page": True, "facts_every_s": 8, "rare_banner": True, "potd": True,
@@ -47,6 +49,7 @@ class Settings:
         for k, v in FEATURE_DEFAULTS.items():
             cfg["features"].setdefault(k, v)
         cfg["display"].setdefault("units", "mi")
+        cfg.setdefault("receiver", {}).setdefault("simulate", False)
         self.cfg = cfg
         self.defaults = copy.deepcopy({sec: dict(cfg.get(sec, {})) for sec, *_ in FIELDS})
         self.path = os.path.join(state_dir, "settings.json") if state_dir else None

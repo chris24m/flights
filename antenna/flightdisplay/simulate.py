@@ -3,7 +3,7 @@
 Lets the whole system (Pi service + Matrix Portal) run with no antenna, no readsb, even on a laptop:
     python3 -m flightdisplay --simulate              # a new aircraft every 60 s
     python3 -m flightdisplay --simulate --every 20   # busier sky
-or from the settings page ("Fake sky" button), which swaps the real feed out for an hour.
+or from the settings page: the "Fake sky (1 hour)" button, or the "Simulate receiver" tick box (stays on).
 
 Each aircraft flies a straight line that passes within a few km of home, so it comes into range,
 becomes the nearest, and leaves again. Mostly airliners; now and then something special (military, a warbird, the Red Arrows, an emergency).
