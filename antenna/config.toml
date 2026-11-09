@@ -16,11 +16,23 @@ max_no_position_age = 60
 
 [display]
 # Only aircraft within this distance count as "overhead".
-radius_km = 15
+radius_km = 16      # about 10 miles; 8 = about 5 miles
+# Distances on the panel: "mi" or "km". (Settings here stay in km.)
+units = "mi"
 # Keep the current aircraft unless another is closer by at least this much (stops flicker).
 switch_margin_km = 0.5
 # Port the Matrix Portal polls: http://<pi-ip>:<port>/display.json
 port = 8080
+
+[discovery]
+# Broadcast this Pi's address so the Matrix Portal finds it without a fixed IP.
+enabled = true
+port = 50222
+
+[debug]
+# true = log every broadcast, Portal request and display change (journalctl -u flight-display -f).
+# The /debug page works either way.
+verbose = false
 
 [alerts]
 # "Look out the window": below this altitude AND within this distance.

@@ -5,9 +5,11 @@ Polls readsb's aircraft.json, decides what the LED panel should show and serves 
 """
 
 import argparse
+import collections
 import json
 import logging
 import os
+import socket
 import threading
 import time
 import tomllib
@@ -22,11 +24,39 @@ from .refdata import airline_for, friendly_type
 from .selector import Aircraft, Selector, haversine_km
 
 log = logging.getLogger("flightdisplay")
+
+# --- diagnostics: everything /debug shows -----------------------------------------
+DIAG = {
+    "started": time.time(),
+    "receiver": {"ok": False, "url": None, "last_ok": None, "last_error": None, "aircraft": 0, "polls": 0},
+    "build": {"errors": 0, "last_error": None},
+    "announce": {"enabled": False, "port": None, "url": None, "sent": 0, "last_sent": None,
+                 "last_error": None},
+    "clients": {},   # ip -> {"requests", "last_seen", "path", "report"} (the Portal reports its own health)
+}
+RECENT_LOG = collections.deque(maxlen=60)
+
+
+class _RecentHandler(logging.Handler):
+    def emit(self, record):
+        RECENT_LOG.append(f"{time.strftime('%H:%M:%S')} {record.levelname} {record.getMessage()}")
+
+
+def ago(ts):
+    return None if ts is None else round(time.time() - ts, 1)
 COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 
 
 def compass(deg):
     return COMPASS[int((deg % 360) / 45 + 0.5) % 8] if deg is not None else ""
+
+
+def fmt_dist(km, units):
+    """Distance as the panel shows it: 1.1MI / 14MI, or 1.8KM / 23KM with units = "km"."""
+    if km is None:
+        return ""
+    v, suffix = (km / 1.609344, "MI") if units == "mi" else (km, "KM")
+    return f"{v:.1f}{suffix}" if v < 10 else f"{v:.0f}{suffix}"
 
 
 def load_config(path):
@@ -72,9 +102,9 @@ class Service:
         prefix, airline_name, colour = airline_for(ac.callsign)
         ac_type = ac.type or self.lookups.aircraft_type(ac.hex)
         route = self.lookups.route(ac.callsign) if prefix else None
+        units = self.cfg["display"].get("units", "mi")
         if not route and ac.dist_km is not None:
-            route = f"{ac.dist_km:.0f}KM {compass(ac.bearing)}" if ac.dist_km >= 10 else \
-                    f"{ac.dist_km:.1f}KM {compass(ac.bearing)}"
+            route = f"{fmt_dist(ac.dist_km, units)} {compass(ac.bearing)}"
         return {
             "mode": pick.mode,
             "callsign": ac.callsign or ac.hex.upper(),
@@ -88,6 +118,7 @@ class Service:
             "trk": round(ac.track) if ac.track is not None else None,
             "trk_txt": compass(ac.track) if ac.track is not None else "",
             "dist_km": round(ac.dist_km, 1) if ac.dist_km is not None else None,
+            "dist_txt": fmt_dist(ac.dist_km, units),
             "squawk": ac.squawk,
             "alert": pick.alert,
         }, airline_name, ac_type
@@ -118,6 +149,8 @@ class Service:
                 "last": self.stats.last_seen_text(now),
                 "today": len(self.stats.seen_today),
                 "furthest_km": round(self.stats.furthest_km),
+                "furthest_txt": fmt_dist(self.stats.furthest_km, self.cfg["display"].get("units", "mi"))
+                                .replace(".0", ""),
             }
         else:
             out, airline_name, ac_type = self.describe(pick.aircraft, pick)
@@ -135,19 +168,32 @@ class Service:
         last_save = 0
         while True:
             now = time.time()
+            r = DIAG["receiver"]
+            r["polls"] += 1
+            r["url"] = rcv["aircraft_url"]
             try:
                 raw = read_aircraft(rcv["aircraft_url"])
+                if not self.receiver_ok:
+                    log.info("receiver OK: %d aircraft", len(raw))
                 self.receiver_ok = True
+                r.update(ok=True, last_ok=now, aircraft=len(raw))
             except Exception as e:
-                if self.receiver_ok:
-                    log.warning("receiver read failed: %s", e)
+                if self.receiver_ok or r["polls"] == 1:
+                    log.warning("receiver read failed (%s): %s", rcv["aircraft_url"], e)
                 self.receiver_ok = False
+                r.update(ok=False, last_error=f"{time.strftime('%H:%M:%S')} {e}")
                 raw = []
             try:
                 out = self.build(raw, now)
                 with self._lock:
                     self.display = out
-            except Exception:
+                shown = (out.get("mode"), out.get("callsign"), (out.get("alert") or {}).get("text"))
+                if shown != getattr(self, "_last_shown", None):
+                    log.debug("display now: %s %s %s", *(x or "" for x in shown))
+                    self._last_shown = shown
+            except Exception as e:
+                DIAG["build"]["errors"] += 1
+                DIAG["build"]["last_error"] = f"{time.strftime('%H:%M:%S')} {e!r}"
                 log.exception("build failed")
             if now - last_save > 60:
                 try:
@@ -163,6 +209,40 @@ class Service:
             return dict(self.display)
 
 
+def local_ip():
+    """This Pi's address on the home network (no traffic is actually sent)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))
+        return s.getsockname()[0]
+    finally:
+        s.close()
+
+
+def announce_forever(http_port, udp_port, every=3.0):
+    """Broadcast "FLIGHTDISPLAY http://<ip>:<port>/display.json" so the Portal can find this Pi
+    on any network (yours or Dad's) without a fixed IP or router settings."""
+    a = DIAG["announce"]
+    a.update(enabled=True, port=udp_port, every_s=every)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    while True:
+        try:
+            url = f"http://{local_ip()}:{http_port}/display.json"
+            msg = f"FLIGHTDISPLAY {url}"
+            sock.sendto(msg.encode(), ("255.255.255.255", udp_port))
+            if url != a["url"]:
+                log.info("announcing %s on UDP broadcast port %d", url, udp_port)
+            a.update(url=url, sent=a["sent"] + 1, last_sent=time.time())
+            log.debug("broadcast: %s", msg)
+        except OSError as e:
+            # No network yet (e.g. just after a power cut): try again shortly.
+            if a["last_error"] is None or not a["last_error"].endswith(str(e)):
+                log.warning("broadcast failed: %s", e)
+            a["last_error"] = f"{time.strftime('%H:%M:%S')} {e}"
+        time.sleep(every)
+
+
 def make_handler(service):
     class Handler(BaseHTTPRequestHandler):
         def _send(self, code, obj):
@@ -176,8 +256,20 @@ def make_handler(service):
 
         def do_GET(self):
             url = urlparse(self.path)
+            ip = self.client_address[0]
+            c = DIAG["clients"].setdefault(ip, {"requests": 0})
+            c.update(requests=c["requests"] + 1, last_seen=time.time(), path=url.path)
+            log.debug("%s GET %s", ip, self.path)
             if url.path == "/display.json":
+                q = parse_qs(url.query)
+                if q:  # the Portal adds its own status (wifi, signal, errors) to each poll
+                    report = {k: v[0] for k, v in q.items()}
+                    if "err" in report and report["err"] != c.get("report", {}).get("err"):
+                        log.warning("portal %s reports: %s", ip, report["err"])
+                    c["report"] = report
                 self._send(200, service.current())
+            elif url.path == "/debug":
+                self._send_debug()
             elif url.path == "/test":
                 q = parse_qs(url.query)
                 scenario = q.get("scenario", ["off"])[0]
@@ -188,7 +280,28 @@ def make_handler(service):
             elif url.path == "/healthz":
                 self._send(200, {"ok": True, "receiver": service.receiver_ok})
             else:
-                self._send(404, {"error": "try /display.json"})
+                self._send(404, {"error": "try /display.json, /debug, /test or /healthz"})
+
+        def _send_debug(self):
+            d = json.loads(json.dumps(DIAG))
+            d["uptime_s"] = round(time.time() - DIAG["started"])
+            d["receiver"]["last_ok_ago_s"] = ago(DIAG["receiver"]["last_ok"])
+            d["announce"]["last_sent_ago_s"] = ago(DIAG["announce"]["last_sent"])
+            for ip, c in d["clients"].items():
+                c["last_seen_ago_s"] = ago(DIAG["clients"][ip]["last_seen"])
+            lk = service.lookups
+            d["lookups"] = {"enabled": lk.enabled, "cached": len(lk._cache), "pending": len(lk._pending),
+                            "recent_failures": len(lk._failed)}
+            d["weather"] = service.weather.text
+            d["test_mode"] = service.test.scenario
+            d["display_now"] = service.current()
+            d["recent_log"] = list(RECENT_LOG)
+            body = json.dumps(d, indent=2, default=str).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
         def log_message(self, fmt, *args):
             pass  # the Portal polls every few seconds; don't fill the journal
@@ -201,10 +314,15 @@ def main():
     ap.add_argument("--config", default=os.path.join(os.path.dirname(__file__), "..", "config.toml"))
     ap.add_argument("--test", choices=sorted(SCENARIOS), help="inject a fake aircraft for 10 minutes")
     ap.add_argument("--once", action="store_true", help="print one display.json and exit")
+    ap.add_argument("--debug", action="store_true",
+                    help="log every broadcast, request and display change (also: [debug] verbose in config)")
     args = ap.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-
     cfg = load_config(args.config)
+    verbose = args.debug or cfg.get("debug", {}).get("verbose", False)
+    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO,
+                        format="%(levelname)s %(name)s: %(message)s")
+    logging.getLogger().addHandler(_RecentHandler(level=logging.INFO))
+
     service = Service(cfg)
     if args.test:
         service.test.start(args.test, 600)
@@ -220,6 +338,10 @@ def main():
 
     threading.Thread(target=service.poll_forever, daemon=True, name="poll").start()
     port = cfg["display"].get("port", 8080)
+    disc = cfg.get("discovery", {})
+    if disc.get("enabled", True):
+        threading.Thread(target=announce_forever, args=(port, disc.get("port", 50222)),
+                         daemon=True, name="announce").start()
     log.info("serving http://0.0.0.0:%d/display.json", port)
     ThreadingHTTPServer(("0.0.0.0", port), make_handler(service)).serve_forever()
 
