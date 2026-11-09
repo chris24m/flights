@@ -389,17 +389,17 @@ def draw(d, now):
         set_text(a_hdg, fmt_hdg(d))
         show_only(alert_g)
     else:
-        set_text(i_time, d.get("time"), animate=True)  # flap each minute
+        set_text(i_time, d.get("time"), animate=False)  # minute changes: no flap
         wx = (d.get("weather") or "").split(" ", 1)
         set_text(i_temp, wx[0])
         set_text(i_wx, wx[1] if len(wx) > 1 else "")
         set_text(i_date, d.get("date"))
         set_text(i_last, d.get("last") or "WAITING FOR AIRCRAFT")
         if int(now / 5) % 2:  # alternate every 5 s
-            set_text(i_stats, "%s PLANES TODAY" % d.get("today", 0), animate=True)
+            set_text(i_stats, "%s PLANES TODAY" % d.get("today", 0), animate=False)
         else:
             set_text(i_stats, "FURTHEST " + (d.get("furthest_txt") or "%sKM" % d.get("furthest_km", 0)),
-                     animate=True)
+                     animate=False)
         show_only(idle_g)
 
 
