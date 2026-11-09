@@ -62,7 +62,7 @@ real feed for made-up aircraft and run the normal service:
 | Pi, from your phone | settings page → **Fake sky (1 hour)**. Press **stop** to go back to the real feed. |
 | Pi, over SSH | `sudo systemctl stop flight-display`, then `cd ~/flights/antenna && python3 -m flightdisplay --simulate` (Ctrl-C, then `sudo systemctl start flight-display` to go back) |
 | Pi, permanently | `aircraft_url = "simulate"` under `[receiver]` in config.toml, restart the service |
-| Your Mac | `cd antenna && python3 -m flightdisplay --simulate` (Python 3.11+). It broadcasts like the Pi does, so a Portal on the same Wi-Fi finds the Mac instead. Stop it and the Portal goes back to the Pi on its own. |
+| Your Mac | `cd antenna && python3 -m flightdisplay --simulate` (needs Python 3.11+: macOS's built-in one is older, `brew install python` or python.org; allow incoming connections if macOS asks). It broadcasts like the Pi does, so a Portal on the same Wi-Fi finds the Mac when the Pi is off or not set up yet (while the Pi is answering, the Portal sticks with the Pi). Afterwards it finds the Pi again by itself. |
 
 A new aircraft arrives about every minute (`--every 20` for a busier sky), flies a straight line
 over home and leaves again: mostly easyJet / Ryanair / BA and friends, with the odd approach into
