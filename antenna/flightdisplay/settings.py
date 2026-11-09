@@ -196,7 +196,9 @@ input[type=number], select, input[type=time], input[type=password] {{ background
   border:1px solid #333; border-radius:6px; padding:6px 8px; font-size:16px; width:96px; }}
 input[type=checkbox] {{ width:22px; height:22px; accent-color:var(--acc); }}
 .sched {{ display:flex; gap:8px; align-items:center; margin-top:8px; }} .sched input[type=time] {{ width:130px; }} .sched input[type=number] {{ width:70px; }}
-small {{ color:var(--dim); }} .chg {{ color:var(--acc); font-size:12px; margin-left:6px; }}
+small {{ color:var(--dim); }} .lbl {{ width:110px; }}
+input.wide, input[name=callsign] {{ background:#0c0d10; color:var(--fg); border:1px solid #333; border-radius:6px;
+  padding:6px 8px; font-size:16px; width:120px; }} .chg {{ color:var(--acc); font-size:12px; margin-left:6px; }}
 button, .btn {{ background:var(--acc); color:#000; border:0; border-radius:8px; padding:10px 16px; font-size:16px;
   text-decoration:none; display:inline-block; margin:4px 4px 4px 0; cursor:pointer; }}
 button.secondary, .btn {{ background:#2a2e36; color:var(--fg); }}
@@ -212,6 +214,20 @@ button.secondary, .btn {{ background:#2a2e36; color:var(--fg); }}
 </form>
 <h2>Test the panel (30 seconds each)</h2>
 <p>{tests} <a class="btn" href="/test?scenario=off&back=1">stop</a></p>
+<h2>Test any plane (60 seconds)</h2>
+<form method="get" action="/test" class="row block">
+<input type="hidden" name="scenario" value="custom"><input type="hidden" name="back" value="1">
+<input type="hidden" name="seconds" value="60">
+<div class="sched"><span class="lbl">Callsign</span><input name="callsign" value="EZY8AB" class="wide"></div>
+<div class="sched"><span class="lbl">Type</span><input name="type" value="A388" class="wide"></div>
+<div class="sched"><span class="lbl">Altitude ft</span><input type="number" name="alt" value="2500"></div>
+<div class="sched"><span class="lbl">Distance mi</span><input type="number" name="dist_mi" value="1" step="0.1"></div>
+<div class="sched"><span class="lbl">Squawk</span><input name="squawk" value="2000" class="wide"></div>
+<label class="sched"><span class="lbl">Military</span><input type="checkbox" name="military" value="1"></label>
+<p><small>Types use ICAO codes: A320, A20N, A388, B738, B744, SPIT, LANC, HAWK, H47, EUFI...
+Squawk 7700 = emergency. Altitude under 3000 ft within about 1 mile = "look up".</small></p>
+<button type="submit">Show on panel</button>
+</form>
 <h2>More</h2>
 <p><a href="/tar1090/" id="map">Live map</a> &middot; <a href="/debug">Debug info</a> &middot;
 <a href="/display.json">display.json</a></p>

@@ -311,11 +311,14 @@ def make_handler(service):
                 q = parse_qs(url.query)
                 scenario = q.get("scenario", ["off"])[0]
                 seconds = int(q.get("seconds", ["60"])[0])
-                ok = service.test.start(scenario, seconds)
+                custom = {k: q[k][0] for k in ("callsign", "type", "alt", "dist_mi", "squawk", "military")
+                          if k in q} if scenario == "custom" else None
+                ok = service.test.start(scenario, seconds, custom)
                 if q.get("back"):  # from a button on the settings page
                     self._send_html(service.settings.page(
-                        message=f"Test '{scenario}' running for {seconds} s" if scenario != "off" and ok
-                        else "Test stopped"))
+                        message=(f"Test '{scenario}' running for {seconds} s" if ok
+                                 else f"Test '{scenario}' not started: check the fields")
+                        if scenario != "off" else "Test stopped"))
                     return
                 self._send(200 if ok else 400, {"ok": ok, "scenario": service.test.scenario,
                                                 "choices": sorted(SCENARIOS) + ["off"]})
