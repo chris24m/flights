@@ -51,6 +51,14 @@ def compass(deg):
     return COMPASS[int((deg % 360) / 45 + 0.5) % 8] if deg is not None else ""
 
 
+def fmt_dist(km, units):
+    """Distance as the panel shows it: 1.1MI / 14MI, or 1.8KM / 23KM with units = "km"."""
+    if km is None:
+        return ""
+    v, suffix = (km / 1.609344, "MI") if units == "mi" else (km, "KM")
+    return f"{v:.1f}{suffix}" if v < 10 else f"{v:.0f}{suffix}"
+
+
 def load_config(path):
     with open(path, "rb") as f:
         return tomllib.load(f)
@@ -94,9 +102,9 @@ class Service:
         prefix, airline_name, colour = airline_for(ac.callsign)
         ac_type = ac.type or self.lookups.aircraft_type(ac.hex)
         route = self.lookups.route(ac.callsign) if prefix else None
+        units = self.cfg["display"].get("units", "mi")
         if not route and ac.dist_km is not None:
-            route = f"{ac.dist_km:.0f}KM {compass(ac.bearing)}" if ac.dist_km >= 10 else \
-                    f"{ac.dist_km:.1f}KM {compass(ac.bearing)}"
+            route = f"{fmt_dist(ac.dist_km, units)} {compass(ac.bearing)}"
         return {
             "mode": pick.mode,
             "callsign": ac.callsign or ac.hex.upper(),
@@ -110,6 +118,7 @@ class Service:
             "trk": round(ac.track) if ac.track is not None else None,
             "trk_txt": compass(ac.track) if ac.track is not None else "",
             "dist_km": round(ac.dist_km, 1) if ac.dist_km is not None else None,
+            "dist_txt": fmt_dist(ac.dist_km, units),
             "squawk": ac.squawk,
             "alert": pick.alert,
         }, airline_name, ac_type
@@ -140,6 +149,8 @@ class Service:
                 "last": self.stats.last_seen_text(now),
                 "today": len(self.stats.seen_today),
                 "furthest_km": round(self.stats.furthest_km),
+                "furthest_txt": fmt_dist(self.stats.furthest_km, self.cfg["display"].get("units", "mi"))
+                                .replace(".0", ""),
             }
         else:
             out, airline_name, ac_type = self.describe(pick.aircraft, pick)

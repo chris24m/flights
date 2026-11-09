@@ -305,7 +305,9 @@ def fmt_altspd(d):
 def fmt_hdg(d):
     trk, dist = d.get("trk"), d.get("dist_km")
     left = ("HDG %03d %s" % (trk, d.get("trk_txt") or "")) if trk is not None else ""
-    right = ("%.1fKM" % dist) if dist is not None and dist < 10 else (("%dKM" % dist) if dist else "")
+    right = d.get("dist_txt")  # formatted on the Pi (miles or km)
+    if right is None:
+        right = ("%.1fKM" % dist) if dist is not None and dist < 10 else (("%dKM" % dist) if dist else "")
     return (left + " " + right).strip()
 
 
@@ -352,7 +354,7 @@ def draw(d, now):
         if int(now / 5) % 2:  # alternate every 5 s
             set_text(i_stats, "%s PLANES TODAY" % d.get("today", 0))
         else:
-            set_text(i_stats, "FURTHEST %sKM" % d.get("furthest_km", 0))
+            set_text(i_stats, "FURTHEST " + (d.get("furthest_txt") or "%sKM" % d.get("furthest_km", 0)))
         show_only(idle_g)
 
 
