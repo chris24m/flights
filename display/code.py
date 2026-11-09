@@ -1032,6 +1032,18 @@ def demo_status():
 
 
 def draw_demo(now):
+    """Draw the demo; if it ever fails, switch it off (and fall back to status messages) rather than
+    let a demo bug restart the board over and over before it can reach the Pi."""
+    global OFFLINE_DEMO
+    try:
+        _draw_demo(now)
+    except Exception as e:  # noqa: BLE001
+        OFFLINE_DEMO = 0
+        note_error("demo off: %r" % e)
+        message("NO DATA", "IS THE PI ON?")
+
+
+def _draw_demo(now):
     d = dict(OFFLINE[int(now // DEMO_STEP_S) % len(OFFLINE)])
     if d["callsign"] == "DEMO":
         d["lines"] = d["lines"][:2] + demo_status()
@@ -1054,7 +1066,7 @@ if not NETWORKS:
             time.sleep(0.05)
         else:
             message("SETUP NEEDED", "SETTINGS.TOML")
-            time.sleep(5)
+            time.sleep(1)
 
 
 def run():
