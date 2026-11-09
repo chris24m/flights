@@ -73,7 +73,10 @@ code: selection, logos, facts cards, plane of the day, transitions, brightness.
 Fake planes never go into the daily stats or "last seen". `/debug` and display.json show
 `"status": "simulated"` (or `"test": "sky"` for the settings-page button) so you can tell.
 
-## If the panel says NO DATA
+## If the panel says NO DATA (or keeps playing its demo)
+
+With `OFFLINE_DEMO = 1` (the default) the Portal plays its built-in demo instead of "NO DATA";
+the demo's first card says what it's waiting for: NO WIFI YET, LOOKING FOR PI or SETUP NEEDED.
 
 1. `/debug` → `clients`: is the Portal listed with a recent `last_seen_ago_s`? If yes, the link works and
    the problem is elsewhere (look at `receiver`).

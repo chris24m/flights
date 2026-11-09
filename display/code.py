@@ -49,6 +49,9 @@ TRANSITIONS = [x.strip() for x in _t.split(",") if x.strip()] if _t is not None 
     (list(ALL_TRANSITIONS) if FLAP else [])
 # If the transitions show odd colours on the real panel, set SNAP_SWAPPED = 1 (byte order of the snapshot).
 SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
+# 1 = until the Pi answers (no Wi-Fi yet, Pi off, unwrapping it on Christmas Day...) play a built-in
+# demo of every screen instead of "NO DATA". 0 = show the plain status message.
+OFFLINE_DEMO = int(os.getenv("OFFLINE_DEMO") if os.getenv("OFFLINE_DEMO") is not None else 1)
 VERSION = "2026.11.09"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
@@ -787,29 +790,40 @@ wdt.timeout = 16
 wdt.mode = WatchDogMode.RESET
 
 
-def connect_wifi():
-    """Try each network in settings.toml (yours and Dad's) until one works."""
-    while not esp.is_connected:
-        for ssid, password in NETWORKS:
-            wdt.feed()
+_net_next = 0
+
+
+def connect_wifi(quiet=False):
+    """Try the networks in settings.toml (yours and Dad's). True if connected.
+    quiet (demo playing): try just one network per call, so the demo only pauses briefly, and
+    don't cover it with status messages."""
+    global _net_next
+    if esp.is_connected:
+        return True
+    for _ in range(1 if quiet else len(NETWORKS)):
+        ssid, password = NETWORKS[_net_next % len(NETWORKS)]
+        _net_next += 1
+        wdt.feed()
+        if not quiet:
             message("WIFI...", ssid[:16])
-            try:
-                esp.connect_AP(ssid, password)
-                STATE["ssid"] = ssid
-                STATE["ip"] = esp.pretty_ip(esp.ip_address)
-                update_rssi()
-                log("wifi connected:", ssid, "ip", STATE["ip"], "rssi", STATE["rssi"])
+        try:
+            esp.connect_AP(ssid, password)
+            STATE["ssid"] = ssid
+            STATE["ip"] = esp.pretty_ip(esp.ip_address)
+            update_rssi()
+            log("wifi connected:", ssid, "ip", STATE["ip"], "rssi", STATE["rssi"])
+            if not quiet:
                 message("WIFI OK", STATE["ip"])
                 for _ in range(3 if DEBUG else 1):
                     wdt.feed()
                     time.sleep(1)
-                return
-            except (RuntimeError, ConnectionError, OSError) as e:
-                note_error("wifi %s: %s" % (ssid, e))
+            return True
+        except (RuntimeError, ConnectionError, OSError) as e:
+            note_error("wifi %s: %s" % (ssid, e))
+        wdt.feed()
+    if not quiet:
         message("NO WIFI", "RETRYING")
-        for _ in range(10):
-            wdt.feed()
-            time.sleep(1)
+    return False
 
 
 def update_rssi():
@@ -914,10 +928,11 @@ if HOSTNAME_URL not in URLS:
     URL_SOURCE[HOSTNAME_URL] = "hostname"
 
 
-def fetch():
-    """Return the display dict from the first Pi URL that answers, or None."""
+def fetch(listen=True):
+    """Return the display dict from the first Pi URL that answers, or None.
+    listen=False skips listening for the Pi's broadcast (8 s), to keep the offline demo moving."""
     data = try_urls()
-    if data is None:
+    if data is None and listen:
         url = discover()
         if url:
             if url in URLS:
@@ -971,45 +986,117 @@ except Exception:  # noqa: BLE001
     pass
 
 
+# --- offline demo -----------------------------------------------------------------
+# Built-in screens (same format as the Pi's display.json), played 8 s each while there's no data
+# from the Pi, so the panel always does something. The first card says what it's waiting for.
+
+DEMO_STEP_S = 8
+DEMO_BRIGHTNESS = 0.3
+OFFLINE = (
+    {"mode": "card", "style": "potd", "callsign": "DEMO", "lines": ["FLIGHT TRACKER", "DEMO MODE", "", "", ""],
+     "transitions": ["flap"]},
+    {"mode": "flight", "callsign": "EZY45T", "airline": "EZY", "col": "#FF6600", "route": "AGP-BOH",
+     "type": "A320", "type_code": "A320", "alt": 2100, "spd": 140, "trk": 80, "trk_txt": "E",
+     "dist_txt": "1.1MI", "sprite": "twin", "transitions": ["flyby"]},
+    {"mode": "card", "style": "facts", "callsign": "EZY45T", "col": "#FF6600", "transitions": ["radar"],
+     "lines": ["AIRBUS A320", "CRUISE 450KT", "CEILING 39000FT", "FIRST FLEW 1987", "ABOUT 180 SEATS"]},
+    {"mode": "alert", "alert": {"level": "rare", "text": "RARE! BOEING 747-400"}, "callsign": "BAW2490",
+     "airline": "BAW", "col": "#3A6FD8", "route": "LHR-BOH", "type": "747-400", "type_code": "B744",
+     "alt": 3800, "spd": 190, "trk": 260, "trk_txt": "W", "dist_txt": "2MI", "sprite": "quad",
+     "transitions": ["flyby"]},
+    {"mode": "alert", "alert": {"level": "military", "text": "RED ARROWS"}, "callsign": "RED1",
+     "type": "HAWK T1", "type_code": "HAWK", "route": "", "alt": 1500, "spd": 300, "trk": 90, "trk_txt": "E",
+     "dist_txt": "", "sprite": "fighter", "transitions": ["slide"]},
+    {"mode": "alert", "alert": {"level": "low", "text": "LOOK UP!"}, "callsign": "RYR52KM", "airline": "RYR",
+     "col": "#F1C933", "route": "BOH-DUB", "type": "737-800", "type_code": "B738", "alt": 1800, "spd": 145,
+     "trk": 80, "trk_txt": "E", "dist_txt": "0.6MI", "sprite": "twin", "transitions": ["dissolve"]},
+    {"mode": "card", "style": "potd", "callsign": "POTD", "transitions": ["radar"],
+     "lines": ["SPITFIRE", "MAX 360KT", "CEILING 43000FT", "FIRST FLEW 1936", "WW2 RAF LEGEND"]},
+    {"mode": "flight", "callsign": "HLE87", "airline": None, "col": "#FF3030", "route": "0.8MI NE",
+     "type": "H135", "type_code": "EC35", "alt": 900, "spd": 110, "trk": 300, "trk_txt": "NW",
+     "dist_txt": "0.8MI", "sprite": "heli", "transitions": ["flyby"]},
+    {"mode": "alert", "alert": {"level": "emergency", "text": "EMERGENCY 7700"}, "callsign": "BAW123",
+     "airline": "BAW", "col": "#3A6FD8", "route": "LGW-BOH", "type": "A320", "type_code": "A320",
+     "alt": 8000, "spd": 280, "trk": 250, "trk_txt": "W", "dist_txt": "4MI", "sprite": "twin",
+     "transitions": ["slide"]},
+)
+
+
+def demo_status():
+    """Lines 3-5 of the demo's title card: what the panel is waiting for."""
+    if not NETWORKS:
+        return ["SETUP NEEDED", "SETTINGS.TOML", ""]
+    if not esp.is_connected:
+        return ["NO WIFI YET", "TRYING " + (NETWORKS[(_net_next - 1) % len(NETWORKS)][0][:8].upper()), ""]
+    return ["WIFI OK", "LOOKING FOR PI", STATE["ip"]]
+
+
+def draw_demo(now):
+    d = dict(OFFLINE[int(now // DEMO_STEP_S) % len(OFFLINE)])
+    if d["callsign"] == "DEMO":
+        d["lines"] = d["lines"][:2] + demo_status()
+    d["demo"] = True
+    # overnight (the Pi last said "off"): stay off; otherwise not too bright
+    d["brightness"] = 0 if brightness <= 0 and STATE["last_ok"] is not None else DEMO_BRIGHTNESS
+    draw(d, now)
+    tick_flaps(now)
+    banner_scroll.tick()
+
+
 # --- main loop -----------------------------------------------------------------
 
 if not NETWORKS:
-    message("SETUP NEEDED", "SETTINGS.TOML")
+    note_error("no WIFI_SSID_1 in settings.toml")
     while True:
         wdt.feed()
-        time.sleep(5)
+        if OFFLINE_DEMO:
+            draw_demo(time.monotonic())
+            time.sleep(0.05)
+        else:
+            message("SETUP NEEDED", "SETTINGS.TOML")
+            time.sleep(5)
 
 
 def run():
     global brightness
-    connect_wifi()
-    data, last_ok, next_poll, failures = None, 0, 0, 0
+    data, last_ok, next_poll, failures, attempts = None, 0, 0, 0, 0
+    if OFFLINE_DEMO:
+        draw_demo(time.monotonic())  # something on screen straight away
     while True:
         wdt.feed()
         now = time.monotonic()
+        fresh = data is not None and now - last_ok < STALE_SECONDS
+        demo = OFFLINE_DEMO and not fresh and DEBUG < 2
         if now >= next_poll:
-            next_poll = now + POLL_SECONDS
-            if not esp.is_connected:
-                connect_wifi()
-            new = fetch()
+            # While the demo plays, check less often and more briefly so it keeps moving.
+            next_poll = now + (POLL_SECONDS if not demo else 15)
+            attempts += 1
+            new = None
+            if connect_wifi(quiet=demo):
+                new = fetch(listen=not demo or attempts % 2 == 0)
             if new is not None:
-                data, last_ok, failures = new, now, 0
+                data, last_ok, failures = new, time.monotonic(), 0
             else:
                 failures += 1
-                if failures >= 5:  # reset the Wi-Fi link; the next loop reconnects
+                if failures >= 5 and esp.is_connected:  # reset the Wi-Fi link; the next loop reconnects
                     try:
                         esp.disconnect()
                     except Exception:  # noqa: BLE001
                         pass
                     failures = 0
             gc.collect()
+            now = time.monotonic()
+            fresh = data is not None and now - last_ok < STALE_SECONDS
+            demo = OFFLINE_DEMO and not fresh and DEBUG < 2
         if DEBUG >= 2:
             show_diagnostics(now)
-        elif data is not None and now - last_ok < STALE_SECONDS:
+        elif fresh:
             draw(data, now)
             tick_flaps(now)
             last_scroll.tick()
             banner_scroll.tick()
+        elif demo:
+            draw_demo(now)
         else:
             # Pi gone quiet: say so, dimly. If the panel was off (overnight), stay off.
             brightness = min(brightness, 0.15) if brightness > 0 else 0
