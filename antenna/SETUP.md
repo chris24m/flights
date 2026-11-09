@@ -90,15 +90,21 @@ The display service also falls back to the UK military hex block and adsbdb.com,
 
 ## 7. Install the display service
 
+The repo is private, so the easiest way to get the code onto the Pi is via the SD card: before ejecting it
+after flashing, copy the repo's `antenna` folder onto the card's `bootfs` drive. Then on the Pi:
+
 ```bash
-sudo apt install -y git
-git clone https://github.com/chris24m/flights.git ~/flights
+mkdir -p ~/flights && cp -r /boot/firmware/antenna ~/flights/
+find ~/flights -name '._*' -delete       # hidden files macOS adds to the card
 cd ~/flights/antenna
-sudo ./install.sh
-nano ~/flights/antenna/config.toml       # set home lat/lon, radius etc.
+sudo bash install.sh                     # "bash" because the boot partition drops the executable flag
+nano config.toml                         # set home lat/lon, radius etc.
 sudo systemctl restart flight-display
 curl http://localhost:8080/display.json
 ```
+
+(Later, for `git pull` updates: make a read-only GitHub deploy key or fine-grained token for the repo and
+`git clone` it to `~/flights` instead.)
 
 Try the alerts without waiting for the RAF:
 

@@ -42,9 +42,20 @@ Use the Pi's test mode to see each one: `curl "http://<pi-ip>:8080/test?scenario
 
 ## Logos
 
-Put 16×16 indexed BMPs in `logos/`, named by ICAO airline prefix (`EZY.bmp`, `RYR.bmp`, `BAW.bmp`…).
-Make one from any image with `python3 tools/make_logo.py some-logo.png EZY`. Aircraft without a logo
-get a plane icon tinted in the airline's colour (colours are set on the Pi in `refdata.py`).
+`logos/` has real airline logos shrunk to 16×16 for about 60 airlines (easyJet, Ryanair, BA, TUI, Jet2,
+Wizz, Loganair, Aurigny, the main European and long-haul carriers, cargo), plus RAF and Red Arrows roundels.
+`logos/preview.png` shows them all. Files are named by ICAO airline code (`EZY.bmp`); sister codes such as
+EJU/EZS (easyJet Europe/Switzerland) are mapped to one file on the Pi (`LOGO_ALIAS` in `refdata.py`).
+
+- `tools/fetch_logos.py` downloads and shrinks them (add a code to its list and re-run, or `python3 fetch_logos.py ABC`).
+  It picks whichever source version is brightest, since dark-on-black logos disappear on the LEDs.
+  Wide or fussy logos get zoomed in on their recognisable part via `CROPS` in the same file (BA, Finnair, FedEx, DHL, Emirates so far): add a line there to zoom any other.
+- `tools/make_logo.py some-logo.png EZY` replaces one with any image you prefer.
+- `tools/make_tails.py` draws the roundels.
+
+The logos are the airlines' trademarks: fine for a private display, so keep this repo private.
+Airlines with no file get a plane icon tinted in the airline's colour.
+Copy the whole `logos/` folder to `CIRCUITPY/` (the preview PNG can stay behind).
 
 ## Brightness
 
