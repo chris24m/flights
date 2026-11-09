@@ -5,6 +5,7 @@
 
 import gc
 import os
+import random
 import time
 
 import board
@@ -19,7 +20,7 @@ import adafruit_connection_manager
 import adafruit_imageload
 import adafruit_requests
 from adafruit_bitmap_font import bitmap_font
-from adafruit_display_text.label import Label
+from adafruit_display_text.bitmap_label import Label  # faster text updates than label.Label
 from adafruit_esp32spi import adafruit_esp32spi
 from adafruit_matrixportal.matrix import Matrix
 
@@ -37,6 +38,8 @@ for n in (1, 2, 3):
 POLL_SECONDS = float(os.getenv("POLL_SECONDS") or 3)
 # DEBUG = 0 normal, 1 = detailed log on the USB serial console, 2 = also a diagnostics screen on the panel
 DEBUG = int(os.getenv("DEBUG") or 0)
+# Departure-board "flap" animation when the screen changes (new aircraft, clock <-> flight). 0 = off.
+FLAP = int(os.getenv("FLAP") if os.getenv("FLAP") is not None else 1)
 VERSION = "2026.11.09"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
@@ -109,13 +112,47 @@ def label(group, x, y, font=SMALL, colour=WHITE):
     return lab
 
 
-def set_text(lab, text, colour=None):
+# --- split-flap animation ----------------------------------------------------------
+# Each character spins through random letters, then settles left to right like an airport board.
+FLAP_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+FLAP_SPIN = 0.30      # seconds every character spins before the first one settles
+FLAP_STAGGER = 0.045  # extra seconds per character position
+flapping = {}         # id(label) -> [label, target text, start time]
+animate_now = False   # set by draw() when the scene changes
+
+
+def set_text(lab, text, colour=None, animate=None):
     text = text or ""
     if colour is not None:
         lab.base_colour = colour
-    if lab.text != text:
-        lab.text = text
     lab.color = dim(lab.base_colour)
+    job = flapping.get(id(lab))
+    if job:                       # mid-flap: just retarget it
+        job[1] = text
+        return
+    if lab.text == text:
+        return
+    if FLAP and (animate_now if animate is None else animate):
+        flapping[id(lab)] = [lab, text, time.monotonic()]
+    else:
+        lab.text = text
+
+
+def tick_flaps(now):
+    for key in list(flapping):
+        lab, target, start = flapping[key]
+        t = now - start
+        out = []
+        done = True
+        for i, ch in enumerate(target):
+            if ch == " " or t >= FLAP_SPIN + i * FLAP_STAGGER:
+                out.append(ch)
+            else:
+                out.append(FLAP_CHARS[random.randrange(len(FLAP_CHARS))])
+                done = False
+        lab.text = "".join(out)
+        if done:
+            del flapping[key]
 
 
 def solid(w, h, colour):
@@ -318,8 +355,15 @@ ALERT_STYLE = {  # level: (banner bg, text, stripe colour, flash period in s or 
 }
 
 
+last_scene = None
+
+
 def draw(d, now):
-    global brightness
+    global brightness, animate_now, last_scene
+    alert = d.get("alert") or {}
+    scene = (d.get("mode"), d.get("callsign"), alert.get("text"))
+    animate_now = scene != last_scene  # new aircraft or screen: flap everything once
+    last_scene = scene
     brightness = float(d.get("brightness", 0.5))
     root.hidden = brightness <= 0
     mode = d.get("mode")
@@ -345,16 +389,17 @@ def draw(d, now):
         set_text(a_hdg, fmt_hdg(d))
         show_only(alert_g)
     else:
-        set_text(i_time, d.get("time"))
+        set_text(i_time, d.get("time"), animate=True)  # flap each minute
         wx = (d.get("weather") or "").split(" ", 1)
         set_text(i_temp, wx[0])
         set_text(i_wx, wx[1] if len(wx) > 1 else "")
         set_text(i_date, d.get("date"))
         set_text(i_last, d.get("last") or "WAITING FOR AIRCRAFT")
         if int(now / 5) % 2:  # alternate every 5 s
-            set_text(i_stats, "%s PLANES TODAY" % d.get("today", 0))
+            set_text(i_stats, "%s PLANES TODAY" % d.get("today", 0), animate=True)
         else:
-            set_text(i_stats, "FURTHEST " + (d.get("furthest_txt") or "%sKM" % d.get("furthest_km", 0)))
+            set_text(i_stats, "FURTHEST " + (d.get("furthest_txt") or "%sKM" % d.get("furthest_km", 0)),
+                     animate=True)
         show_only(idle_g)
 
 
@@ -592,6 +637,7 @@ def run():
             show_diagnostics(now)
         elif data is not None and now - last_ok < STALE_SECONDS:
             draw(data, now)
+            tick_flaps(now)
             last_scroll.tick()
             banner_scroll.tick()
         else:
