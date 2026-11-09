@@ -42,6 +42,17 @@ Serial console (`screen /dev/tty.usbmodem* 115200`, or Mu / Thonny) shows the er
 
 Use the Pi's test mode to see each one: `curl "http://<pi-ip>:8080/test?scenario=military"`.
 
+## Offline demo
+
+Until the Pi answers (just plugged in, no Wi-Fi yet, Pi switched off, unwrapping it on Christmas
+Day...) the Portal plays a built-in demo instead of a "NO DATA" message: a title card saying what
+it's waiting for (NO WIFI YET / LOOKING FOR PI / SETUP NEEDED), then an easyJet A320, its facts
+card, a rare 747, the Red Arrows, LOOK UP, a Spitfire plane of the day, a helicopter and a 7700,
+8 s each, with every transition. It keeps trying the Wi-Fi and the Pi in the background (the demo
+pauses for a few seconds while it does) and switches to live data as soon as it gets some. If the
+Pi had said "off for the night" before going quiet, the panel stays off.
+`OFFLINE_DEMO = 0` in settings.toml brings back the plain status messages.
+
 ## Transitions
 
 When the screen changes, one of these plays, picked at random from the ones ticked on the Pi's
