@@ -196,6 +196,23 @@ class FactsAndSettingsTests(unittest.TestCase):
         self.assertEqual({t for s in seen for t in s[3]}, {"flyby", "radar", "slide", "dissolve", "flap"})
         self.assertNotIn("demo", self.svc.build(real, t0 + len(DEMO) * DEMO_STEP_S + 1))
 
+    def test_fake_sky_brings_planes_overhead(self):
+        from flightdisplay.simulate import FakeSky
+        sky = FakeSky(HOME, every_s=60, seed=1)
+        shown, t = set(), 50000.0
+        for _ in range(60 * 30):  # half an hour, one poll a second
+            out = self.svc.selector.choose(sky.aircraft(t), t)
+            if out.mode != "idle":
+                shown.add(out.aircraft.callsign)
+            t += 1
+        self.assertGreater(len(shown), 10)            # plenty of different aircraft came over
+        self.assertLess(len(sky.planes), 12)          # and old ones are cleared away
+
+    def test_fake_sky_from_the_settings_page(self):
+        self.assertTrue(self.svc.test.start("sky", 3600, now=1000.0))
+        out = self.svc.build([], 1001.0)
+        self.assertEqual(out["test"], "sky")
+
     def test_settings_reject_bad_values(self):
         errs = self.svc.settings.update({"features.facts_every_s": ["999"], "display.units": ["furlongs"]})
         self.assertTrue(errs)
