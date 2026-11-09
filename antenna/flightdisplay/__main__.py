@@ -8,6 +8,7 @@ import argparse
 import json
 import logging
 import os
+import socket
 import threading
 import time
 import tomllib
@@ -163,6 +164,30 @@ class Service:
             return dict(self.display)
 
 
+def local_ip():
+    """This Pi's address on the home network (no traffic is actually sent)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))
+        return s.getsockname()[0]
+    finally:
+        s.close()
+
+
+def announce_forever(http_port, udp_port, every=3.0):
+    """Broadcast "FLIGHTDISPLAY http://<ip>:<port>/display.json" so the Portal can find this Pi
+    on any network (yours or Dad's) without a fixed IP or router settings."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    while True:
+        try:
+            msg = f"FLIGHTDISPLAY http://{local_ip()}:{http_port}/display.json"
+            sock.sendto(msg.encode(), ("255.255.255.255", udp_port))
+        except OSError:
+            pass  # no network yet (e.g. just after a power cut): try again shortly
+        time.sleep(every)
+
+
 def make_handler(service):
     class Handler(BaseHTTPRequestHandler):
         def _send(self, code, obj):
@@ -220,6 +245,10 @@ def main():
 
     threading.Thread(target=service.poll_forever, daemon=True, name="poll").start()
     port = cfg["display"].get("port", 8080)
+    disc = cfg.get("discovery", {})
+    if disc.get("enabled", True):
+        threading.Thread(target=announce_forever, args=(port, disc.get("port", 50222)),
+                         daemon=True, name="announce").start()
     log.info("serving http://0.0.0.0:%d/display.json", port)
     ThreadingHTTPServer(("0.0.0.0", port), make_handler(service)).serve_forever()
 

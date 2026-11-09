@@ -22,6 +22,11 @@ switch_margin_km = 0.5
 # Port the Matrix Portal polls: http://<pi-ip>:<port>/display.json
 port = 8080
 
+[discovery]
+# Broadcast this Pi's address so the Matrix Portal finds it without a fixed IP.
+enabled = true
+port = 50222
+
 [alerts]
 # "Look out the window": below this altitude AND within this distance.
 low_alt_ft = 3000

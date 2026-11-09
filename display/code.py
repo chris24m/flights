@@ -25,7 +25,10 @@ from adafruit_matrixportal.matrix import Matrix
 
 # --- settings (settings.toml) ------------------------------------------------
 
+# DISPLAY_URLS is optional: the Pi announces itself on the network (see discover()).
 URLS = [u.strip() for u in (os.getenv("DISPLAY_URLS") or "").split(",") if u.strip()]
+DISCOVERY_PORT = 50222  # must match [discovery] port in antenna/config.toml
+HOSTNAME_URL = "http://flighttracker:8080/display.json"  # works where the router does local DNS
 NETWORKS = []
 for n in (1, 2, 3):
     ssid = os.getenv("WIFI_SSID_%d" % n)
@@ -337,17 +340,91 @@ def connect_wifi():
             time.sleep(1)
 
 
+# --- finding the Pi ------------------------------------------------------------
+# Order tried: the address that last worked (kept across power cuts in non-volatile memory),
+# DISPLAY_URLS from settings.toml, the Pi's hostname, then listening for the Pi's broadcast.
+
+def load_saved_url():
+    try:
+        n = microcontroller.nvm[0]
+        if 0 < n < 200:
+            url = bytes(microcontroller.nvm[1:1 + n]).decode()
+            if url.startswith("http://"):
+                return url
+    except Exception:  # noqa: BLE001 - blank or unreadable memory
+        pass
+    return None
+
+
+def save_url(url):
+    try:
+        b = url.encode()
+        if load_saved_url() != url and len(b) < 200:
+            microcontroller.nvm[0:1 + len(b)] = bytes([len(b)]) + b
+    except Exception as e:  # noqa: BLE001
+        print("couldn't save url:", e)
+
+
+def discover(seconds=8):
+    """Listen for the Pi's UDP broadcast ("FLIGHTDISPLAY <url>", sent every few seconds)."""
+    try:
+        sock = esp.get_socket()
+        esp.start_server(DISCOVERY_PORT, sock, conn_mode=esp.UDP_MODE)
+    except Exception as e:  # noqa: BLE001 - older Wi-Fi firmware: fall back to fixed addresses
+        print("discovery unavailable:", e)
+        return None
+    try:
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            wdt.feed()
+            n = esp.socket_available(sock)
+            if n:
+                msg = bytes(esp.socket_read(sock, n)).decode("utf-8", "ignore").split()
+                if len(msg) >= 2 and msg[0] == "FLIGHTDISPLAY" and msg[1].startswith("http://"):
+                    print("found Pi at", msg[1])
+                    return msg[1]
+            time.sleep(0.2)
+    except Exception as e:  # noqa: BLE001
+        print("discovery failed:", e)
+    finally:
+        try:
+            esp.socket_close(sock)
+        except Exception:  # noqa: BLE001
+            pass
+    return None
+
+
+saved = load_saved_url()
+if saved and saved not in URLS:
+    URLS.insert(0, saved)
+if HOSTNAME_URL not in URLS:
+    URLS.append(HOSTNAME_URL)
+
+
 def fetch():
     """Return the display dict from the first Pi URL that answers, or None."""
+    data = try_urls()
+    if data is None:
+        url = discover()
+        if url:
+            if url in URLS:
+                URLS.remove(url)
+            URLS.insert(0, url)
+            data = try_urls()
+    return data
+
+
+def try_urls():
     global URLS
     for i, url in enumerate(URLS):
         wdt.feed()
         try:
-            resp = requests.get(url, timeout=5)
+            resp = requests.get(url, timeout=4)
             data = resp.json()
             resp.close()
-            if i:  # remember the one that worked
+            if i:  # try the one that worked first next time
                 URLS = [url] + URLS[:i] + URLS[i + 1:]
+            save_url(url)
             return data
         except Exception as e:  # noqa: BLE001 - any failure just means "try the next one"
             print("fetch", url, "failed:", e)
@@ -356,7 +433,7 @@ def fetch():
 
 # --- main loop -----------------------------------------------------------------
 
-if not NETWORKS or not URLS:
+if not NETWORKS:
     message("SETUP NEEDED", "SETTINGS.TOML")
     while True:
         wdt.feed()

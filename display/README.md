@@ -24,7 +24,9 @@ can't be reached remotely once it's at Dad's.
    (or any Adafruit Learn guide that uses it) and copy it to `CIRCUITPY/fonts/tom-thumb.bdf`.
    Without it the code falls back to the built-in font, which is too big for the layout.
 5. Copy `code.py` and the `logos/` folder to `CIRCUITPY/`.
-6. Copy `settings.toml.example` to `CIRCUITPY/settings.toml` and fill in Wi-Fi and the Pi's address.
+6. Copy `settings.toml.example` to `CIRCUITPY/settings.toml` and fill in Wi-Fi. The Pi's address isn't needed:
+   the Pi broadcasts it every 3 s and the Portal picks it up (and remembers it across power cuts). It also tries
+   `http://flighttracker:8080`. Set `DISPLAY_URLS` only if neither works on some network.
 
 The panel shows `WIFI...`, then the flight or idle screen. `NO DATA / IS THE PI ON?` means
 Wi-Fi is fine but the Pi didn't answer: check `curl http://<pi-ip>:8080/display.json`.

@@ -29,8 +29,8 @@ antenna, a 16–32 GB microSD card, a card reader, and a laptop.
 5. From the laptop: `ssh pi@flighttracker.local`
    (if `.local` doesn't resolve, find the Pi's IP in your router's device list).
 
-While you're in the router: **reserve a fixed IP for the Pi** (DHCP reservation).
-The Matrix Portal finds the Pi by IP address. Do the same on Dad's router on Christmas Day.
+No router settings needed: the display service broadcasts the Pi's address and the Matrix Portal finds it
+on its own, at home and at Dad's. (A DHCP reservation for the Pi is still a nice-to-have, not required.)
 
 ## 3. Update and install readsb
 
