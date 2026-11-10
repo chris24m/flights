@@ -18,12 +18,12 @@ matrix = rgbmatrix.RGBMatrix(
 display = framebufferio.FramebufferDisplay(matrix, auto_refresh=True)
 
 bmp = displayio.Bitmap(64, 32, 5)
-pal = displayio.Palette(5)
+pal = displayio.Palette(5)  # quarter brightness: a full-white panel at full power can draw 4 A
 pal[0] = 0x000000
-pal[1] = 0xFF0000
-pal[2] = 0x00FF00
-pal[3] = 0x0000FF
-pal[4] = 0xFFFFFF
+pal[1] = 0x400000
+pal[2] = 0x004000
+pal[3] = 0x000040
+pal[4] = 0x404040
 root = displayio.Group()
 root.append(displayio.TileGrid(bmp, pixel_shader=pal))
 display.root_group = root
