@@ -62,7 +62,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # 1 = until the Pi answers (no Wi-Fi yet, Pi off, unwrapping it on Christmas Day...) play a built-in
 # demo of every screen instead of "NO DATA". 0 = show the plain status message.
 OFFLINE_DEMO = int(os.getenv("OFFLINE_DEMO") if os.getenv("OFFLINE_DEMO") is not None else 1)
-VERSION = "2026.11.10g"
+VERSION = "2026.11.10h"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -832,6 +832,15 @@ esp = adafruit_esp32spi.ESP_SPIcontrol(
 # near the top): the adafruit_requests library needs ~15 KB of memory this board can't spare.
 
 
+def _ip_of(host):
+    """4-byte address to connect to, worked out the way adafruit_requests does it (numbers as-is,
+    names via the ESP32's DNS lookup) rather than handing the ESP32 a name to connect to."""
+    parts = host.split(".")
+    if len(parts) == 4 and all(p.isdigit() for p in parts):
+        return bytes(int(p) for p in parts)
+    return esp.get_host_by_name(host)
+
+
 def http_get_json(url, timeout=4):
     """GET an http:// URL and return the parsed JSON body. Raises on any failure."""
     host, _, path = url[7:].partition("/")
@@ -839,7 +848,7 @@ def http_get_json(url, timeout=4):
     buf = _http_buf
     sock = esp.get_socket()
     try:
-        esp.socket_connect(sock, host, int(port or 80), conn_mode=esp.TCP_MODE)
+        esp.socket_connect(sock, _ip_of(host), int(port or 80), conn_mode=esp.TCP_MODE)
         esp.socket_write(sock, ("GET /%s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n"
                                 % (path, host)).encode())
         n, body, length = 0, -1, None
