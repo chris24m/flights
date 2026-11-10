@@ -19,11 +19,10 @@ can't be reached remotely once it's at Dad's.
    - `adafruit_portalbase/`, `neopixel.mpy`, `adafruit_bus_device/` (needed by matrixportal)
 
    Or with circup on your laptop: `pip install circup && circup install adafruit_matrixportal adafruit_esp32spi adafruit_requests adafruit_connection_manager adafruit_display_text adafruit_bitmap_font adafruit_imageload`
-4. **Font:** the layout is designed for the 3×5-pixel `tom-thumb.bdf` font. Get it from the
-   `examples/fonts/` folder of Adafruit's Adafruit_CircuitPython_Bitmap_Font repo on GitHub
-   (or any Adafruit Learn guide that uses it) and copy it to `CIRCUITPY/fonts/tom-thumb.bdf`.
-   Without it the code falls back to the built-in font, which is too big for the layout.
-5. Copy `code.py` and the `logos/` folder to `CIRCUITPY/`.
+4. Copy `code.py` and the `logos/` and `fonts/` folders to `CIRCUITPY/`. (`fonts/flight-3x5.bdf` is the
+   panel's 3×5-pixel font, made for this layout. Without it the code falls back to the built-in font,
+   which is too big.)
+5. (Step merged into 4.)
 6. Copy `settings.toml.example` to `CIRCUITPY/settings.toml` and fill in Wi-Fi. The Pi's address isn't needed:
    the Pi broadcasts it every 3 s and the Portal picks it up (and remembers it across power cuts). It also tries
    `http://flighttracker:8080`. Set `DISPLAY_URLS` only if neither works on some network.

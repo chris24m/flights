@@ -108,10 +108,15 @@ def parse_colour(text, default):
 
 matrix = Matrix(width=64, height=32, bit_depth=6)
 display = matrix.display
-try:
-    SMALL = bitmap_font.load_font("/fonts/tom-thumb.bdf")  # 3x5 pixel font, 4x6 cell
-except OSError:
-    SMALL = terminalio.FONT  # works, but too big: copy the font over (see README)
+SMALL = None
+for _f in ("/fonts/flight-3x5.bdf", "/fonts/tom-thumb.bdf"):  # 3x5 pixel font, 4x6 cell (in the repo)
+    try:
+        SMALL = bitmap_font.load_font(_f)
+        break
+    except OSError:
+        pass
+if SMALL is None:
+    SMALL = terminalio.FONT  # works, but too big: copy the fonts/ folder over (see README)
 BIG = terminalio.FONT
 
 root = displayio.Group()
