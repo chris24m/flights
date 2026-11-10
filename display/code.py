@@ -52,7 +52,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # 1 = until the Pi answers (no Wi-Fi yet, Pi off, unwrapping it on Christmas Day...) play a built-in
 # demo of every screen instead of "NO DATA". 0 = show the plain status message.
 OFFLINE_DEMO = int(os.getenv("OFFLINE_DEMO") if os.getenv("OFFLINE_DEMO") is not None else 1)
-VERSION = "2026.11.10b"
+VERSION = "2026.11.10c"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -115,6 +115,14 @@ for _f in ("/fonts/flight-3x5.bdf", "/fonts/tom-thumb.bdf"):  # 3x5 pixel font, 
         break
     except OSError:
         pass
+if SMALL is not None:
+    # Load every letter now, at power-on. Otherwise each new letter is read from the file the first
+    # time it's shown, and once the memory is fragmented that read can fail (MemoryError).
+    try:
+        SMALL.load_glyphs("".join(chr(c) for c in range(32, 127)))
+    except Exception as _e:  # noqa: BLE001
+        print("font preload: %r" % (_e,))
+    gc.collect()
 if SMALL is None:
     SMALL = terminalio.FONT  # works, but too big: copy the fonts/ folder over (see README)
 BIG = terminalio.FONT
@@ -577,27 +585,28 @@ def run_slide(group):
         group.x, group.y = dx * (k - size), dy * (k - size)
 
 
-_order = None
+def _rev8(i):
+    r = 0
+    for _ in range(8):
+        r, i = (r << 1) | (i & 1), i >> 1
+    return r
 
 
-def _build_dissolve():
-    """A shuffled list of all 2048 pixels, built once at power-on."""
-    global _order
-    import array
-    _order = array.array("H", range(2048))
-    for i in range(2047, 0, -1):
-        j = random.randrange(i + 1)
-        _order[i], _order[j] = _order[j], _order[i]
-    gc.collect()
+_REV8 = bytes(_rev8(i) for i in range(256))  # each byte with its bits reversed
+_REV3 = bytes((0, 4, 2, 6, 1, 5, 3, 7))
 
 
 def run_dissolve():
-    """Sparkle: the old screen dissolves pixel by pixel into the new one."""
-    start, done = random.randrange(2048), 0
+    """Sparkle: the old screen dissolves pixel by pixel into the new one, in a scrambled order
+    worked out on the fly (no 4 KB table to keep in memory). 5x+c mod 2048 visits every pixel
+    once; reversing the 11 bits spreads neighbouring steps across the panel."""
+    c = random.randrange(1024) * 2 + 1
+    x, done = random.randrange(2048), 0
     for t in _frames(0.8):
         upto = int(t * 2048)
-        for k in range(done, upto):
-            snap[_order[(start + k) % 2048]] = TRANS
+        for _ in range(done, upto):
+            x = (5 * x + c) & 2047
+            snap[(_REV8[x & 255] << 3) | _REV3[x >> 8]] = TRANS
         done = max(done, upto)
 
 
@@ -605,16 +614,15 @@ OVERLAY_KINDS = ("flyby", "radar", "slide", "dissolve")
 
 # Build the radar and sparkle tables now, at power-on. Asked for later (after Wi-Fi, fonts and
 # JSON have chopped the memory into small pieces) a 4 KB block may not exist any more.
-for _build in (_build_radar, _build_dissolve):
-    try:
-        _build()
-    except MemoryError as _e:
-        print("transition table: %r" % (_e,))
+try:
+    _build_radar()
+except MemoryError as _e:
+    print("radar table: %r" % (_e,))
 gc.collect()
 
 
 def _available(kind):
-    return not ((kind == "radar" and _radar is None) or (kind == "dissolve" and _order is None))
+    return not (kind == "radar" and _radar is None)
 
 
 def choose_transition(ticked, has_plane):
@@ -1019,7 +1027,7 @@ try:
     RESET_REASON = str(microcontroller.cpu.reset_reason).split(".")[-1]  # e.g. POWER_ON, WATCHDOG
 except Exception:  # noqa: BLE001
     RESET_REASON = "UNKNOWN"
-log("flight display", VERSION, "starting; reset reason:", RESET_REASON, "debug:", DEBUG)
+log("flight display", VERSION, "starting; reset reason:", RESET_REASON, "debug:", DEBUG, "free:", gc.mem_free())
 try:
     n = microcontroller.nvm[256]
     if 0 < n <= 120:
@@ -1074,6 +1082,9 @@ def demo_status():
     return ["WIFI OK", "LOOKING FOR PI", STATE["ip"]]
 
 
+_demo_step = None
+
+
 def draw_demo(now):
     """Draw the demo; if it ever fails, switch it off (and fall back to status messages) rather than
     let a demo bug restart the board over and over before it can reach the Pi."""
@@ -1082,12 +1093,18 @@ def draw_demo(now):
         _draw_demo(now)
     except Exception as e:  # noqa: BLE001
         OFFLINE_DEMO = 0
-        note_error("demo off: %r" % e)
+        gc.collect()
+        note_error("demo off: %r (free %d)" % (e, gc.mem_free()))
         message("NO DATA", "IS THE PI ON?")
 
 
 def _draw_demo(now):
-    d = dict(OFFLINE[int(now // DEMO_STEP_S) % len(OFFLINE)])
+    global _demo_step
+    step = int(now // DEMO_STEP_S)
+    if step != _demo_step:
+        _demo_step = step
+        gc.collect()
+    d = dict(OFFLINE[step % len(OFFLINE)])
     if d["callsign"] == "DEMO":
         d["lines"] = d["lines"][:2] + demo_status()
     d["demo"] = True
