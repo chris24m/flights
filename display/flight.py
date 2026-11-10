@@ -336,9 +336,9 @@ root.append(msg_g)
 
 
 # Diagnostics screen (DEBUG = 2): what the Portal sees, for checking at Dad's without a laptop.
-diag_g = displayio.Group()
-d_lines = [label(diag_g, 0, y, colour=c) for y, c in ((0, CYAN), (6, WHITE), (12, AMBER), (18, GREEN), (24, RED))]
-err_scroll = Scroller(d_lines[4])
+diag_g = displayio.Group()  # its five labels are only made if the diagnostics screen is used
+d_lines = []
+err_scroll = None
 root.append(diag_g)
 
 
@@ -662,7 +662,7 @@ def run_transition(kind, group, plane):
 
 
 def show_diagnostics(now):
-    global brightness
+    global brightness, err_scroll
     brightness = max(brightness, 0.3)
     root.hidden = False
     update_rssi()
@@ -670,6 +670,9 @@ def show_diagnostics(now):
     age = ("%dS" % (now - STATE["last_ok"])) if STATE["last_ok"] is not None else "NEVER"
     texts = ("W " + STATE["ssid"][:14], "%s %sDB" % (STATE["ip"] or "NO IP", STATE["rssi"]),
              "PI " + (pi or "?"), "OK %s %s" % (age, STATE["via"].upper()[:6]), STATE["err"].upper() or "NO ERRORS")
+    if not d_lines:
+        d_lines.extend(label(diag_g, 0, y, colour=c) for y, c in ((0, CYAN), (6, WHITE), (12, AMBER), (18, GREEN), (24, RED)))
+        err_scroll = Scroller(d_lines[4])
     for lab, text in zip(d_lines, texts):
         set_text(lab, text)
     err_scroll.tick()
@@ -1066,9 +1069,16 @@ def fetch(listen=True):
     return data
 
 
+_skip_until = {}  # url -> time: the name "flighttracker" doesn't resolve on most home routers, so
+#                   after it fails, leave it alone for 10 minutes instead of retrying every 3 s.
+
+
 def try_urls():
     global URLS
+    last = "no Pi address known yet"
     for i, url in enumerate(URLS):
+        if time.monotonic() < _skip_until.get(url, 0):
+            continue
         wdt.feed()
         t = time.monotonic()
         try:
@@ -1084,8 +1094,10 @@ def try_urls():
         except Exception as e:  # noqa: BLE001 - any failure just means "try the next one"
             dbg("fetch", url, "failed after %dms:" % ((time.monotonic() - t) * 1000), e)
             last = "%s: %s" % (URL_SOURCE.get(url, "?"), e)
+            if URL_SOURCE.get(url) == "hostname":
+                _skip_until[url] = time.monotonic() + 600
     STATE["fails"] += 1
-    note_error(last if URLS else "no Pi address known yet")
+    note_error(last)
     return None
 
 
@@ -1228,6 +1240,8 @@ def run():
                         pass
                     failures = 0
             gc.collect()
+            if gc.mem_free() < LOW_MEMORY:
+                restart("low memory: %d free" % gc.mem_free())
             now = time.monotonic()
             fresh = data is not None and now - last_ok < STALE_SECONDS
             demo = OFFLINE_DEMO and not fresh and DEBUG < 2
@@ -1248,6 +1262,21 @@ def run():
         time.sleep(0.05)
 
 
+LOW_MEMORY = 3000  # bytes: below this, start afresh rather than limp on and start failing
+
+
+def restart(why):
+    """A clean restart (a few seconds, then straight back to the Pi): remembered across the restart
+    and reported to the Pi, so the settings page shows it happened."""
+    log("restarting:", why)
+    try:
+        b = why.encode()[:120]
+        microcontroller.nvm[256:257 + len(b)] = bytes([len(b)]) + b
+    except Exception:  # noqa: BLE001
+        pass
+    microcontroller.reset()
+
+
 mem_mark("demo")
 log("memory free after:", ", ".join(MEM))
 try:
@@ -1258,10 +1287,5 @@ except Exception as e:  # noqa: BLE001 - anything unexpected: log it, remember i
         traceback.print_exception(e)
     except Exception:  # noqa: BLE001
         log("crashed:", e)
-    try:  # kept in non-volatile memory so it's reported to the Pi after the restart
-        b = ("crash: %r" % e).encode()[:120]
-        microcontroller.nvm[256:257 + len(b)] = bytes([len(b)]) + b
-    except Exception:  # noqa: BLE001
-        pass
     time.sleep(5)
-    microcontroller.reset()
+    restart("crash: %r" % e)
