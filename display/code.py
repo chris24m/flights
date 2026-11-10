@@ -52,7 +52,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # 1 = until the Pi answers (no Wi-Fi yet, Pi off, unwrapping it on Christmas Day...) play a built-in
 # demo of every screen instead of "NO DATA". 0 = show the plain status message.
 OFFLINE_DEMO = int(os.getenv("OFFLINE_DEMO") if os.getenv("OFFLINE_DEMO") is not None else 1)
-VERSION = "2026.11.09"
+VERSION = "2026.11.10"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -775,7 +775,11 @@ def draw(d, now):
                      animate=False)
         show_only(idle_g)
     if kind in OVERLAY_KINDS:
-        group = next((g for g in (flight_g, alert_g, idle_g, card_g) if not g.hidden), idle_g)
+        group = idle_g  # (CircuitPython's next() has no default argument, so a plain loop)
+        for g in (flight_g, alert_g, idle_g, card_g):
+            if not g.hidden:
+                group = g
+                break
         run_transition(kind, group, plane)
 
 
@@ -934,31 +938,6 @@ def close_udp():
         except Exception:  # noqa: BLE001
             pass
         _udp = None
-    packets = 0
-    try:
-        end = time.monotonic() + seconds
-        while time.monotonic() < end:
-            wdt.feed()
-            n = esp.socket_available(sock)
-            if n:
-                packets += 1
-                raw = bytes(esp.socket_read(sock, n)).decode("utf-8", "ignore")
-                dbg("udp packet:", repr(raw))
-                msg = raw.split()
-                if len(msg) >= 2 and msg[0] == "FLIGHTDISPLAY" and msg[1].startswith("http://"):
-                    log("found Pi at", msg[1])
-                    STATE["found"] += 1
-                    return msg[1]
-            time.sleep(0.2)
-        note_error("no broadcast heard (%d other packets)" % packets)
-    except Exception as e:  # noqa: BLE001
-        note_error("discovery failed: %s" % e)
-    finally:
-        try:
-            esp.socket_close(sock)
-        except Exception:  # noqa: BLE001
-            pass
-    return None
 
 
 for u in URLS:
