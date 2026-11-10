@@ -5,6 +5,7 @@
 # this file only draws it. Fix behaviour on the Pi (reachable over Tailscale), not here.
 
 import gc
+import json
 import os
 import random
 import time
@@ -18,13 +19,12 @@ import terminalio
 from digitalio import DigitalInOut
 from watchdog import WatchDogMode
 
-import adafruit_connection_manager
-import adafruit_imageload
-import adafruit_requests
 from adafruit_bitmap_font import bitmap_font
 from adafruit_display_text.bitmap_label import Label  # faster text updates than label.Label
 from adafruit_esp32spi import adafruit_esp32spi
 from adafruit_matrixportal.matrix import Matrix
+
+_http_buf = bytearray(2048)  # the Pi's replies (~700 bytes); made first, while memory is in one piece
 
 # --- settings (settings.toml) ------------------------------------------------
 
@@ -53,7 +53,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # 1 = until the Pi answers (no Wi-Fi yet, Pi off, unwrapping it on Christmas Day...) play a built-in
 # demo of every screen instead of "NO DATA". 0 = show the plain status message.
 OFFLINE_DEMO = int(os.getenv("OFFLINE_DEMO") if os.getenv("OFFLINE_DEMO") is not None else 1)
-VERSION = "2026.11.10d"
+VERSION = "2026.11.10e"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -236,10 +236,11 @@ class Logo:
                 self.group.pop()
             bmp = None
             if icao:
-                try:
-                    bmp, pal = adafruit_imageload.load("/logos/%s.bmp" % icao,
-                                                       bitmap=displayio.Bitmap, palette=displayio.Palette)
-                except (OSError, ValueError):
+                try:  # read from flash as it's drawn, so a logo costs almost no memory
+                    bmp = displayio.OnDiskBitmap("/logos/%s.bmp" % icao)
+                    pal = bmp.pixel_shader
+                    len(pal)  # a palette (indexed BMP), so it can be dimmed
+                except (OSError, ValueError, TypeError, AttributeError):
                     bmp = None
             if bmp is None:
                 bmp, pal = plane_bmp, plane_pal
@@ -817,8 +818,57 @@ def draw(d, now):
 esp = adafruit_esp32spi.ESP_SPIcontrol(
     busio.SPI(board.SCK, board.MOSI, board.MISO),
     DigitalInOut(board.ESP_CS), DigitalInOut(board.ESP_BUSY), DigitalInOut(board.ESP_RESET))
-pool = adafruit_connection_manager.get_radio_socketpool(esp)
-requests = adafruit_requests.Session(pool, adafruit_connection_manager.get_radio_ssl_context(esp))
+# Plain HTTP straight over the ESP32's sockets, into one buffer made at power-on (_http_buf,
+# near the top): the adafruit_requests library needs ~15 KB of memory this board can't spare.
+
+
+def http_get_json(url, timeout=4):
+    """GET an http:// URL and return the parsed JSON body. Raises on any failure."""
+    host, _, path = url[7:].partition("/")
+    host, _, port = host.partition(":")
+    buf = _http_buf
+    sock = esp.get_socket()
+    try:
+        esp.socket_connect(sock, host, int(port or 80), conn_mode=esp.TCP_MODE)
+        esp.socket_write(sock, ("GET /%s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n"
+                                % (path, host)).encode())
+        n, body, length = 0, -1, None
+        end = time.monotonic() + timeout
+        while length is None or n < body + length:
+            if time.monotonic() > end:
+                raise OSError("timed out")
+            avail = esp.socket_available(sock)
+            if not avail:
+                if body >= 0 and length is None and esp.socket_status(sock) != 4:
+                    break  # no Content-Length: the server closing the connection ends it
+                time.sleep(0.005)
+                continue
+            if n + avail > len(buf):
+                raise ValueError("reply too big")
+            chunk = esp.socket_read(sock, avail)
+            buf[n:n + len(chunk)] = chunk
+            start = max(0, n - 3)
+            n += len(chunk)
+            if body < 0:
+                for i in range(start, n - 3):
+                    if buf[i] == 13 and buf[i + 1] == 10 and buf[i + 2] == 13 and buf[i + 3] == 10:
+                        body = i + 4
+                        head = bytes(buf[:i]).decode("utf-8", "ignore").lower().split("\r\n")
+                        status = head[0].split(" ")
+                        if len(status) < 2 or status[1] != "200":
+                            raise ValueError("HTTP %s" % (status[1] if len(status) > 1 else "?"))
+                        for line in head[1:]:
+                            if line.startswith("content-length:"):
+                                length = int(line[15:])
+                        break
+        if body < 0:
+            raise ValueError("no reply")
+        return json.loads(memoryview(buf)[body:n])
+    finally:
+        try:
+            esp.socket_close(sock)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # Hardware watchdog: if the code ever hangs (the ESP32 Wi-Fi chip occasionally wedges),
@@ -1001,12 +1051,7 @@ def try_urls():
         wdt.feed()
         t = time.monotonic()
         try:
-            resp = requests.get(url + "?" + report_query(), timeout=4)
-            status = resp.status_code
-            data = resp.json()
-            resp.close()
-            if status != 200:
-                raise ValueError("HTTP %d" % status)
+            data = http_get_json(url + "?" + report_query())
             if i:  # try the one that worked first next time
                 URLS = [url] + URLS[:i] + URLS[i + 1:]
             if STATE["url"] != url:

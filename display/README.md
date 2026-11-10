@@ -14,11 +14,11 @@ can't be reached remotely once it's at Dad's.
 3. **Libraries:** from the CircuitPython 9.x library bundle, copy these into `CIRCUITPY/lib/`:
    - `adafruit_matrixportal/`
    - `adafruit_esp32spi/`
-   - `adafruit_requests.mpy`, `adafruit_connection_manager.mpy`
-   - `adafruit_display_text/`, `adafruit_bitmap_font/`, `adafruit_imageload/`
+   - `adafruit_display_text/`, `adafruit_bitmap_font/`
+   - (`adafruit_requests`, `adafruit_connection_manager` and `adafruit_imageload` are no longer used; leaving them on the board is harmless)
    - `adafruit_portalbase/`, `neopixel.mpy`, `adafruit_bus_device/` (needed by matrixportal)
 
-   Or with circup on your laptop: `pip install circup && circup install adafruit_matrixportal adafruit_esp32spi adafruit_requests adafruit_connection_manager adafruit_display_text adafruit_bitmap_font adafruit_imageload`
+   Or with circup on your laptop: `pip install circup && circup install adafruit_matrixportal adafruit_esp32spi adafruit_display_text adafruit_bitmap_font`
 4. On the Mac, with the board plugged in, run `./display/install.sh`. It precompiles `flight.py` to
    `flight.mpy` (using Adafruit's `mpy-cross` for CircuitPython 10.3.1, downloaded the first time) and copies
    `code.py`, `flight.mpy`, `logos/` and `fonts/` onto `CIRCUITPY/`. Precompiling matters: compiling 40 KB of
