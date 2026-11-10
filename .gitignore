@@ -3,3 +3,5 @@ __pycache__/
 display/settings.toml
 antenna/wifi.toml
 .DS_Store
+display/.mpy-cross-*
+display/flight.mpy
