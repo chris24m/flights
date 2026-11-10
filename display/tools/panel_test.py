@@ -5,6 +5,7 @@
 import time
 
 import board
+import digitalio
 import displayio
 import framebufferio
 import rgbmatrix
@@ -28,9 +29,15 @@ root = displayio.Group()
 root.append(displayio.TileGrid(bmp, pixel_shader=pal))
 display.root_group = root
 
+# The little red "L" LED on the Portal blinks with each colour, so you can tell the test is
+# running even when the board is on a wall supply with no serial window.
+led = digitalio.DigitalInOut(board.LED)
+led.switch_to_output()
+
 while True:
     for name, c in (("red", 1), ("green", 2), ("blue", 3), ("white", 4)):
         print("panel test:", name)
+        led.value = not led.value
         bmp.fill(c)
         time.sleep(2)
     print("panel test: moving bar (top row to bottom)")
