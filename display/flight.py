@@ -62,7 +62,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # 1 = until the Pi answers (no Wi-Fi yet, Pi off, unwrapping it on Christmas Day...) play a built-in
 # demo of every screen instead of "NO DATA". 0 = show the plain status message.
 OFFLINE_DEMO = int(os.getenv("OFFLINE_DEMO") if os.getenv("OFFLINE_DEMO") is not None else 1)
-VERSION = "2026.11.10f"
+VERSION = "2026.11.10g"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -886,23 +886,32 @@ wdt.mode = WatchDogMode.RESET
 
 
 _net_next = 0
+_net_good = None   # index of the network that last connected: tried first, and given extra chances
+_net_misses = 0    # failed tries of _net_good in a row
 
 
 def connect_wifi(quiet=False):
     """Try the networks in settings.toml (yours and Dad's). True if connected.
     quiet (demo playing): try just one network per call, so the demo only pauses briefly, and
     don't cover it with status messages."""
-    global _net_next
+    global _net_next, _net_good, _net_misses
     if esp.is_connected:
         return True
     for _ in range(1 if quiet else len(NETWORKS)):
-        ssid, password = NETWORKS[_net_next % len(NETWORKS)]
-        _net_next += 1
+        # A weak signal often needs a few goes: stick with the network that worked last time for
+        # 3 tries before trying the others (at Dad's, his; at yours, yours).
+        if _net_good is not None and _net_misses < 3:
+            i = _net_good
+        else:
+            i = _net_next % len(NETWORKS)
+            _net_next += 1
+        ssid, password = NETWORKS[i]
         wdt.feed()
         if not quiet:
             message("WIFI...", ssid[:16])
         try:
             esp.connect_AP(ssid, password)
+            _net_good, _net_misses = i, 0
             close_udp()  # any listener from before the Wi-Fi dropped is gone
             STATE["ssid"] = ssid
             STATE["ip"] = esp.pretty_ip(esp.ip_address)
@@ -916,6 +925,8 @@ def connect_wifi(quiet=False):
             return True
         except (RuntimeError, ConnectionError, OSError) as e:
             note_error("wifi %s: %s" % (ssid, e))
+            if i == _net_good:
+                _net_misses += 1
         wdt.feed()
     if not quiet:
         message("NO WIFI", "RETRYING")
@@ -1134,7 +1145,7 @@ def demo_status():
     if not NETWORKS:
         return ["SETUP NEEDED", "SETTINGS.TOML", ""]
     if not esp.is_connected:
-        return ["NO WIFI YET", "TRYING " + (NETWORKS[(_net_next - 1) % len(NETWORKS)][0][:8].upper()), ""]
+        return ["NO WIFI YET", "WEAK SIGNAL?" if _net_misses >= 3 else "CONNECTING...", ""]
     return ["WIFI OK", "LOOKING FOR PI", STATE["ip"]]
 
 
@@ -1206,7 +1217,10 @@ def run():
                 data, last_ok, failures = new, time.monotonic(), 0
             else:
                 failures += 1
-                if failures >= 5 and esp.is_connected:  # reset the Wi-Fi link; the next loop reconnects
+                # Reset the Wi-Fi link (the next loop reconnects) only if the Pi has answered before
+                # on this Wi-Fi and has now gone quiet for a while: that's the ESP32 wedging. Before
+                # the Pi has ever answered, dropping a working (weak) Wi-Fi link only makes it worse.
+                if failures >= 20 and data is not None and esp.is_connected:
                     close_udp()
                     try:
                         esp.disconnect()
