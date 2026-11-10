@@ -6,7 +6,15 @@ can't be reached remotely once it's at Dad's.
 
 ## One-time setup (week 2)
 
-1. **Install CircuitPython 9.x** on the Matrix Portal M4: download the UF2 from
+> **Which way round the Portal goes.** It plugs onto the panel's INPUT socket, but its socket
+> fits either way round and only one works. The right way has the Portal's body (Wi-Fi module,
+> USB-C) **hanging out past the edge of the panel**, not lying across the middle of it. The
+> wrong way gives a completely dark panel even though everything is powered. Unplug the power
+> before turning it round.
+> Power: the red wire goes to the Portal's **5V** screw, the black to **GND**. Copy files with the
+> spades off (a laptop's USB port can't power the panel), then run it from the 5 V 3 A supply.
+
+1. **Install CircuitPython 10.x** (10.3.1 is what `install.sh` compiles for) on the Matrix Portal M4: download the UF2 from
    circuitpython.org (board: "Matrix Portal M4"), double-tap the reset button, drag the UF2
    onto the `MATRIXBOOT` drive. It reappears as `CIRCUITPY`. Use a USB-C **data** cable.
 2. **Update the ESP32 Wi-Fi firmware** if it's old (Adafruit's "Upgrade Airlift firmware" guide).
