@@ -52,6 +52,14 @@ Serial console (`screen /dev/tty.usbmodem* 115200`, or Mu / Thonny) shows the er
 
 Use the Pi's test mode to see each one: `curl "http://<pi-ip>:8080/test?scenario=military"`.
 
+## Buttons
+
+The two small buttons next to reset on the Portal:
+
+- **UP**: status screen on/off. Shows the Wi-Fi network, signal strength, the Pi's address, how long ago the
+  Pi last answered, and the latest error.
+- **DOWN**: demo on/off. Plays the built-in demo even while the Pi is sending real flights (press again to go back).
+
 ## Offline demo
 
 Until the Pi answers (just plugged in, no Wi-Fi yet, Pi switched off, unwrapping it on Christmas
