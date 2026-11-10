@@ -52,7 +52,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # 1 = until the Pi answers (no Wi-Fi yet, Pi off, unwrapping it on Christmas Day...) play a built-in
 # demo of every screen instead of "NO DATA". 0 = show the plain status message.
 OFFLINE_DEMO = int(os.getenv("OFFLINE_DEMO") if os.getenv("OFFLINE_DEMO") is not None else 1)
-VERSION = "2026.11.10"
+VERSION = "2026.11.10b"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -525,30 +525,34 @@ _radar = None  # (pixel order sorted by angle, start of each angle bucket)
 RADAR_STEPS = 72
 
 
+def _build_radar():
+    """Every pixel sorted by its angle from 12 o'clock (clockwise), plus where each angle bucket
+    starts. Built once at power-on, while there's still a free 4 KB block of memory."""
+    global _radar
+    import array
+    import math
+    bucket = bytearray(2048)
+    counts = [0] * (RADAR_STEPS + 1)
+    for i in range(2048):
+        x, y = i % 64 - 31.5, i // 64 - 15.5
+        a = math.atan2(x, -y)  # 0 = straight up, clockwise
+        b = int((a % (2 * math.pi)) / (2 * math.pi) * RADAR_STEPS) % RADAR_STEPS
+        bucket[i] = b
+        counts[b + 1] += 1
+    for b in range(RADAR_STEPS):
+        counts[b + 1] += counts[b]
+    order = array.array("H", range(2048))
+    fill = list(counts)
+    for i in range(2048):
+        order[fill[bucket[i]]] = i
+        fill[bucket[i]] += 1
+    _radar = (order, counts)
+    del bucket, fill
+    gc.collect()
+
+
 def run_radar():
     """Radar sweep: a green line sweeps clockwise from 12 o'clock, revealing the new screen."""
-    global _radar
-    if _radar is None:
-        import array
-        import math
-        bucket = bytearray(2048)
-        counts = [0] * (RADAR_STEPS + 1)
-        for i in range(2048):
-            x, y = i % 64 - 31.5, i // 64 - 15.5
-            a = math.atan2(x, -y)  # 0 = straight up, clockwise
-            b = int((a % (2 * math.pi)) / (2 * math.pi) * RADAR_STEPS) % RADAR_STEPS
-            bucket[i] = b
-            counts[b + 1] += 1
-        for b in range(RADAR_STEPS):
-            counts[b + 1] += counts[b]
-        order = array.array("H", range(2048))
-        fill = list(counts)
-        for i in range(2048):
-            order[fill[bucket[i]]] = i
-            fill[bucket[i]] += 1
-        _radar = (order, counts)
-        del bucket, fill
-        gc.collect()
     order, starts = _radar
     beam = rgb565(dim(GREEN))
     done = 0  # buckets fully revealed
@@ -576,16 +580,19 @@ def run_slide(group):
 _order = None
 
 
+def _build_dissolve():
+    """A shuffled list of all 2048 pixels, built once at power-on."""
+    global _order
+    import array
+    _order = array.array("H", range(2048))
+    for i in range(2047, 0, -1):
+        j = random.randrange(i + 1)
+        _order[i], _order[j] = _order[j], _order[i]
+    gc.collect()
+
+
 def run_dissolve():
     """Sparkle: the old screen dissolves pixel by pixel into the new one."""
-    global _order
-    if _order is None:
-        import array
-        _order = array.array("H", range(2048))
-        for i in range(2047, 0, -1):
-            j = random.randrange(i + 1)
-            _order[i], _order[j] = _order[j], _order[i]
-        gc.collect()
     start, done = random.randrange(2048), 0
     for t in _frames(0.8):
         upto = int(t * 2048)
@@ -596,11 +603,24 @@ def run_dissolve():
 
 OVERLAY_KINDS = ("flyby", "radar", "slide", "dissolve")
 
+# Build the radar and sparkle tables now, at power-on. Asked for later (after Wi-Fi, fonts and
+# JSON have chopped the memory into small pieces) a 4 KB block may not exist any more.
+for _build in (_build_radar, _build_dissolve):
+    try:
+        _build()
+    except MemoryError as _e:
+        print("transition table: %r" % (_e,))
+gc.collect()
+
+
+def _available(kind):
+    return not ((kind == "radar" and _radar is None) or (kind == "dissolve" and _order is None))
+
 
 def choose_transition(ticked, has_plane):
     """One of the ticked animations at random. The fly-by needs a plane (not e.g. clock -> plane of
     the day); if it was the only one ticked, use the flap then."""
-    pool = [k for k in ticked if k in ALL_TRANSITIONS and (has_plane or k != "flyby")]
+    pool = [k for k in ticked if k in ALL_TRANSITIONS and (has_plane or k != "flyby") and _available(k)]
     return random.choice(pool) if pool else "flap"
 
 
