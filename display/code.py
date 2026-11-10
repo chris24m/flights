@@ -52,7 +52,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # 1 = until the Pi answers (no Wi-Fi yet, Pi off, unwrapping it on Christmas Day...) play a built-in
 # demo of every screen instead of "NO DATA". 0 = show the plain status message.
 OFFLINE_DEMO = int(os.getenv("OFFLINE_DEMO") if os.getenv("OFFLINE_DEMO") is not None else 1)
-VERSION = "2026.11.09"
+VERSION = "2026.11.10"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -775,7 +775,11 @@ def draw(d, now):
                      animate=False)
         show_only(idle_g)
     if kind in OVERLAY_KINDS:
-        group = next((g for g in (flight_g, alert_g, idle_g, card_g) if not g.hidden), idle_g)
+        group = idle_g  # (CircuitPython's next() has no default argument, so a plain loop)
+        for g in (flight_g, alert_g, idle_g, card_g):
+            if not g.hidden:
+                group = g
+                break
         run_transition(kind, group, plane)
 
 
@@ -813,6 +817,7 @@ def connect_wifi(quiet=False):
             message("WIFI...", ssid[:16])
         try:
             esp.connect_AP(ssid, password)
+            close_udp()  # any listener from before the Wi-Fi dropped is gone
             STATE["ssid"] = ssid
             STATE["ip"] = esp.pretty_ip(esp.ip_address)
             update_rssi()
@@ -886,40 +891,53 @@ def save_url(url):
         print("couldn't save url:", e)
 
 
+_udp = None  # the listening socket: opened once and kept (the Wi-Fi chip can't reopen it reliably)
+
+
 def discover(seconds=8):
     """Listen for the Pi's UDP broadcast ("FLIGHTDISPLAY <url>", sent every few seconds)."""
+    global _udp
     log("listening for the Pi's broadcast on UDP", DISCOVERY_PORT, "for", seconds, "s")
-    try:
-        sock = esp.get_socket()
-        esp.start_server(DISCOVERY_PORT, sock, conn_mode=esp.UDP_MODE)
-    except Exception as e:  # noqa: BLE001 - older Wi-Fi firmware: fall back to fixed addresses
-        note_error("discovery unavailable: %s" % e)
-        return None
+    if _udp is None:
+        try:
+            sock = esp.get_socket()
+            esp.start_server(DISCOVERY_PORT, sock, conn_mode=esp.UDP_MODE)
+            _udp = sock
+        except Exception as e:  # noqa: BLE001 - older Wi-Fi firmware: fall back to fixed addresses
+            note_error("discovery unavailable: %s" % e)
+            return None
     packets = 0
     try:
         end = time.monotonic() + seconds
         while time.monotonic() < end:
             wdt.feed()
-            n = esp.socket_available(sock)
+            n = esp.socket_available(_udp)
             if n:
                 packets += 1
-                raw = bytes(esp.socket_read(sock, n)).decode("utf-8", "ignore")
+                raw = bytes(esp.socket_read(_udp, n)).decode("utf-8", "ignore")
                 dbg("udp packet:", repr(raw))
-                msg = raw.split()
-                if len(msg) >= 2 and msg[0] == "FLIGHTDISPLAY" and msg[1].startswith("http://"):
-                    log("found Pi at", msg[1])
-                    STATE["found"] += 1
-                    return msg[1]
+                for line in raw.split("FLIGHTDISPLAY")[1:]:  # several broadcasts may be queued up
+                    url = (line.split() or [""])[0]
+                    if url.startswith("http://"):
+                        log("found Pi at", url)
+                        STATE["found"] += 1
+                        return url
             time.sleep(0.2)
         note_error("no broadcast heard (%d other packets)" % packets)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 - the socket died (e.g. Wi-Fi dropped): open a new one next time
         note_error("discovery failed: %s" % e)
-    finally:
+        close_udp()
+    return None
+
+
+def close_udp():
+    global _udp
+    if _udp is not None:
         try:
-            esp.socket_close(sock)
+            esp.socket_close(_udp)
         except Exception:  # noqa: BLE001
             pass
-    return None
+        _udp = None
 
 
 for u in URLS:
@@ -1096,6 +1114,7 @@ def run():
             else:
                 failures += 1
                 if failures >= 5 and esp.is_connected:  # reset the Wi-Fi link; the next loop reconnects
+                    close_udp()
                     try:
                         esp.disconnect()
                     except Exception:  # noqa: BLE001
