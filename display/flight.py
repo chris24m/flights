@@ -62,7 +62,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # 1 = until the Pi answers (no Wi-Fi yet, Pi off, unwrapping it on Christmas Day...) play a built-in
 # demo of every screen instead of "NO DATA". 0 = show the plain status message.
 OFFLINE_DEMO = int(os.getenv("OFFLINE_DEMO") if os.getenv("OFFLINE_DEMO") is not None else 1)
-VERSION = "2026.11.10f"
+VERSION = "2026.11.10g"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -336,9 +336,9 @@ root.append(msg_g)
 
 
 # Diagnostics screen (DEBUG = 2): what the Portal sees, for checking at Dad's without a laptop.
-diag_g = displayio.Group()
-d_lines = [label(diag_g, 0, y, colour=c) for y, c in ((0, CYAN), (6, WHITE), (12, AMBER), (18, GREEN), (24, RED))]
-err_scroll = Scroller(d_lines[4])
+diag_g = displayio.Group()  # its five labels are only made if the diagnostics screen is used
+d_lines = []
+err_scroll = None
 root.append(diag_g)
 
 
@@ -662,7 +662,7 @@ def run_transition(kind, group, plane):
 
 
 def show_diagnostics(now):
-    global brightness
+    global brightness, err_scroll
     brightness = max(brightness, 0.3)
     root.hidden = False
     update_rssi()
@@ -670,6 +670,9 @@ def show_diagnostics(now):
     age = ("%dS" % (now - STATE["last_ok"])) if STATE["last_ok"] is not None else "NEVER"
     texts = ("W " + STATE["ssid"][:14], "%s %sDB" % (STATE["ip"] or "NO IP", STATE["rssi"]),
              "PI " + (pi or "?"), "OK %s %s" % (age, STATE["via"].upper()[:6]), STATE["err"].upper() or "NO ERRORS")
+    if not d_lines:
+        d_lines.extend(label(diag_g, 0, y, colour=c) for y, c in ((0, CYAN), (6, WHITE), (12, AMBER), (18, GREEN), (24, RED)))
+        err_scroll = Scroller(d_lines[4])
     for lab, text in zip(d_lines, texts):
         set_text(lab, text)
     err_scroll.tick()
@@ -886,23 +889,32 @@ wdt.mode = WatchDogMode.RESET
 
 
 _net_next = 0
+_net_good = None   # index of the network that last connected: tried first, and given extra chances
+_net_misses = 0    # failed tries of _net_good in a row
 
 
 def connect_wifi(quiet=False):
     """Try the networks in settings.toml (yours and Dad's). True if connected.
     quiet (demo playing): try just one network per call, so the demo only pauses briefly, and
     don't cover it with status messages."""
-    global _net_next
+    global _net_next, _net_good, _net_misses
     if esp.is_connected:
         return True
     for _ in range(1 if quiet else len(NETWORKS)):
-        ssid, password = NETWORKS[_net_next % len(NETWORKS)]
-        _net_next += 1
+        # A weak signal often needs a few goes: stick with the network that worked last time for
+        # 3 tries before trying the others (at Dad's, his; at yours, yours).
+        if _net_good is not None and _net_misses < 3:
+            i = _net_good
+        else:
+            i = _net_next % len(NETWORKS)
+            _net_next += 1
+        ssid, password = NETWORKS[i]
         wdt.feed()
         if not quiet:
             message("WIFI...", ssid[:16])
         try:
             esp.connect_AP(ssid, password)
+            _net_good, _net_misses = i, 0
             close_udp()  # any listener from before the Wi-Fi dropped is gone
             STATE["ssid"] = ssid
             STATE["ip"] = esp.pretty_ip(esp.ip_address)
@@ -916,6 +928,8 @@ def connect_wifi(quiet=False):
             return True
         except (RuntimeError, ConnectionError, OSError) as e:
             note_error("wifi %s: %s" % (ssid, e))
+            if i == _net_good:
+                _net_misses += 1
         wdt.feed()
     if not quiet:
         message("NO WIFI", "RETRYING")
@@ -1055,9 +1069,16 @@ def fetch(listen=True):
     return data
 
 
+_skip_until = {}  # url -> time: the name "flighttracker" doesn't resolve on most home routers, so
+#                   after it fails, leave it alone for 10 minutes instead of retrying every 3 s.
+
+
 def try_urls():
     global URLS
+    last = "no Pi address known yet"
     for i, url in enumerate(URLS):
+        if time.monotonic() < _skip_until.get(url, 0):
+            continue
         wdt.feed()
         t = time.monotonic()
         try:
@@ -1073,8 +1094,10 @@ def try_urls():
         except Exception as e:  # noqa: BLE001 - any failure just means "try the next one"
             dbg("fetch", url, "failed after %dms:" % ((time.monotonic() - t) * 1000), e)
             last = "%s: %s" % (URL_SOURCE.get(url, "?"), e)
+            if URL_SOURCE.get(url) == "hostname":
+                _skip_until[url] = time.monotonic() + 600
     STATE["fails"] += 1
-    note_error(last if URLS else "no Pi address known yet")
+    note_error(last)
     return None
 
 
@@ -1134,7 +1157,7 @@ def demo_status():
     if not NETWORKS:
         return ["SETUP NEEDED", "SETTINGS.TOML", ""]
     if not esp.is_connected:
-        return ["NO WIFI YET", "TRYING " + (NETWORKS[(_net_next - 1) % len(NETWORKS)][0][:8].upper()), ""]
+        return ["NO WIFI YET", "WEAK SIGNAL?" if _net_misses >= 3 else "CONNECTING...", ""]
     return ["WIFI OK", "LOOKING FOR PI", STATE["ip"]]
 
 
@@ -1206,7 +1229,10 @@ def run():
                 data, last_ok, failures = new, time.monotonic(), 0
             else:
                 failures += 1
-                if failures >= 5 and esp.is_connected:  # reset the Wi-Fi link; the next loop reconnects
+                # Reset the Wi-Fi link (the next loop reconnects) only if the Pi has answered before
+                # on this Wi-Fi and has now gone quiet for a while: that's the ESP32 wedging. Before
+                # the Pi has ever answered, dropping a working (weak) Wi-Fi link only makes it worse.
+                if failures >= 20 and data is not None and esp.is_connected:
                     close_udp()
                     try:
                         esp.disconnect()
@@ -1214,6 +1240,8 @@ def run():
                         pass
                     failures = 0
             gc.collect()
+            if gc.mem_free() < LOW_MEMORY:
+                restart("low memory: %d free" % gc.mem_free())
             now = time.monotonic()
             fresh = data is not None and now - last_ok < STALE_SECONDS
             demo = OFFLINE_DEMO and not fresh and DEBUG < 2
@@ -1234,6 +1262,21 @@ def run():
         time.sleep(0.05)
 
 
+LOW_MEMORY = 3000  # bytes: below this, start afresh rather than limp on and start failing
+
+
+def restart(why):
+    """A clean restart (a few seconds, then straight back to the Pi): remembered across the restart
+    and reported to the Pi, so the settings page shows it happened."""
+    log("restarting:", why)
+    try:
+        b = why.encode()[:120]
+        microcontroller.nvm[256:257 + len(b)] = bytes([len(b)]) + b
+    except Exception:  # noqa: BLE001
+        pass
+    microcontroller.reset()
+
+
 mem_mark("demo")
 log("memory free after:", ", ".join(MEM))
 try:
@@ -1244,10 +1287,5 @@ except Exception as e:  # noqa: BLE001 - anything unexpected: log it, remember i
         traceback.print_exception(e)
     except Exception:  # noqa: BLE001
         log("crashed:", e)
-    try:  # kept in non-volatile memory so it's reported to the Pi after the restart
-        b = ("crash: %r" % e).encode()[:120]
-        microcontroller.nvm[256:257 + len(b)] = bytes([len(b)]) + b
-    except Exception:  # noqa: BLE001
-        pass
     time.sleep(5)
-    microcontroller.reset()
+    restart("crash: %r" % e)
