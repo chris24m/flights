@@ -25,6 +25,15 @@ from adafruit_esp32spi import adafruit_esp32spi
 from adafruit_matrixportal.matrix import Matrix
 
 _http_buf = bytearray(2048)  # the Pi's replies (~700 bytes); made first, while memory is in one piece
+MEM = []  # free memory after each stage of start-up, logged once the main loop starts
+
+
+def mem_mark(stage):
+    gc.collect()
+    MEM.append("%s %d" % (stage, gc.mem_free()))
+
+
+mem_mark("libs")
 
 # --- settings (settings.toml) ------------------------------------------------
 
@@ -53,7 +62,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # 1 = until the Pi answers (no Wi-Fi yet, Pi off, unwrapping it on Christmas Day...) play a built-in
 # demo of every screen instead of "NO DATA". 0 = show the plain status message.
 OFFLINE_DEMO = int(os.getenv("OFFLINE_DEMO") if os.getenv("OFFLINE_DEMO") is not None else 1)
-VERSION = "2026.11.10e"
+VERSION = "2026.11.10f"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -130,6 +139,7 @@ BIG = terminalio.FONT
 
 root = displayio.Group()
 display.root_group = root
+mem_mark("panel+font")
 
 
 def label(group, x, y, font=SMALL, colour=WHITE):
@@ -531,50 +541,44 @@ def run_flyby(sprite, tail, flip):
         tg.x = 64 - sx - w if flip else sx
 
 
-_radar = None  # (pixel order sorted by angle, start of each angle bucket)
+_radar = None  # angle bucket of each pixel (bytes)
 RADAR_STEPS = 72
 
 
 def _build_radar():
-    """Every pixel sorted by its angle from 12 o'clock (clockwise), plus where each angle bucket
-    starts. Built once at power-on, while there's still a free 4 KB block of memory."""
+    """Which angle bucket (0 = 12 o'clock, clockwise) each pixel is in, as one 2 KB bytes object,
+    built once at power-on. The sweep finds each bucket's pixels with bytes.find (fast, in C)."""
     global _radar
-    import array
     import math
     bucket = bytearray(2048)
-    counts = [0] * (RADAR_STEPS + 1)
     for i in range(2048):
         x, y = i % 64 - 31.5, i // 64 - 15.5
         a = math.atan2(x, -y)  # 0 = straight up, clockwise
-        b = int((a % (2 * math.pi)) / (2 * math.pi) * RADAR_STEPS) % RADAR_STEPS
-        bucket[i] = b
-        counts[b + 1] += 1
-    for b in range(RADAR_STEPS):
-        counts[b + 1] += counts[b]
-    order = array.array("H", range(2048))
-    fill = list(counts)
-    for i in range(2048):
-        order[fill[bucket[i]]] = i
-        fill[bucket[i]] += 1
-    _radar = (order, counts)
-    del bucket, fill
+        bucket[i] = int((a % (2 * math.pi)) / (2 * math.pi) * RADAR_STEPS) % RADAR_STEPS
+    _radar = bytes(bucket)
+    del bucket
     gc.collect()
+
+
+def _radar_paint(b, value):
+    needle = bytes((b,))
+    i = _radar.find(needle)
+    while i >= 0:
+        snap[i] = value
+        i = _radar.find(needle, i + 1)
 
 
 def run_radar():
     """Radar sweep: a green line sweeps clockwise from 12 o'clock, revealing the new screen."""
-    order, starts = _radar
     beam = rgb565(dim(GREEN))
     done = 0  # buckets fully revealed
     for t in _frames(1.2):
         upto = int(t * RADAR_STEPS)
         for b in range(done, upto):
-            for k in range(starts[b], starts[b + 1]):
-                snap[order[k]] = TRANS
+            _radar_paint(b, TRANS)
         done = max(done, upto)
         if done < RADAR_STEPS:
-            for k in range(starts[done], starts[done + 1]):
-                snap[order[k]] = beam
+            _radar_paint(done, beam)
 
 
 def run_slide(group):
@@ -681,6 +685,9 @@ def message(line1, line2=""):
     set_text(m1, line1)
     set_text(m2, line2)
     show_only(msg_g)
+
+
+mem_mark("screens")
 
 
 # --- formatting ----------------------------------------------------------------
@@ -943,6 +950,9 @@ def report_query():
     if STATE["err"]:
         q += "&err=" + quote(STATE["err"])
     return q
+
+
+mem_mark("wifi")
 
 
 # --- finding the Pi ------------------------------------------------------------
@@ -1224,6 +1234,8 @@ def run():
         time.sleep(0.05)
 
 
+mem_mark("demo")
+log("memory free after:", ", ".join(MEM))
 try:
     run()
 except Exception as e:  # noqa: BLE001 - anything unexpected: log it, remember it, start again
