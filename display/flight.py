@@ -16,7 +16,7 @@ import busio
 import displayio
 import microcontroller
 import terminalio
-from digitalio import DigitalInOut
+from digitalio import DigitalInOut, Pull
 from watchdog import WatchDogMode
 
 from adafruit_bitmap_font import bitmap_font
@@ -62,7 +62,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # 1 = until the Pi answers (no Wi-Fi yet, Pi off, unwrapping it on Christmas Day...) play a built-in
 # demo of every screen instead of "NO DATA". 0 = show the plain status message.
 OFFLINE_DEMO = int(os.getenv("OFFLINE_DEMO") if os.getenv("OFFLINE_DEMO") is not None else 1)
-VERSION = "2026.11.10h"
+VERSION = "2026.11.10i"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -1217,13 +1217,46 @@ if not NETWORKS:
             time.sleep(1)
 
 
+# The two buttons on the Portal (next to reset):
+#   UP   = status screen on/off (Wi-Fi, signal, Pi address, last answer, last error)
+#   DOWN = demo on/off (plays the built-in demo even when the Pi is sending real flights)
+def _button(name):
+    try:
+        b = DigitalInOut(getattr(board, name))
+        b.switch_to_input(pull=Pull.UP)
+        return b
+    except Exception:  # noqa: BLE001 - no such button on this board
+        return None
+
+
+BTN_UP, BTN_DOWN = _button("BUTTON_UP"), _button("BUTTON_DOWN")
+
+
+def _pressed(btn):
+    return btn is not None and not btn.value  # buttons pull to ground when pressed
+
+
 def run():
     global brightness
     data, last_ok, next_poll, failures, attempts = None, 0, 0, 0, 0
+    show_status, force_demo, was_up, was_down = False, False, False, False
     if OFFLINE_DEMO:
         draw_demo(time.monotonic())  # something on screen straight away
     while True:
         wdt.feed()
+        up, down = _pressed(BTN_UP), _pressed(BTN_DOWN)
+        if up and not was_up:
+            show_status = not show_status
+            log("button: status screen", "on" if show_status else "off")
+        if down and not was_down:
+            force_demo = not force_demo
+            log("button: demo", "on" if force_demo else "off")
+            root.hidden = False
+            set_text(m1, "DEMO ON" if force_demo else "DEMO OFF", animate=False)
+            set_text(m2, "", animate=False)
+            show_only(msg_g)
+            time.sleep(1)
+        was_up, was_down = up, down
         now = time.monotonic()
         fresh = data is not None and now - last_ok < STALE_SECONDS
         demo = OFFLINE_DEMO and not fresh and DEBUG < 2
@@ -1254,8 +1287,10 @@ def run():
             now = time.monotonic()
             fresh = data is not None and now - last_ok < STALE_SECONDS
             demo = OFFLINE_DEMO and not fresh and DEBUG < 2
-        if DEBUG >= 2:
+        if DEBUG >= 2 or show_status:
             show_diagnostics(now)
+        elif force_demo:
+            draw_demo(now)
         elif fresh:
             draw(data, now)
             tick_flaps(now)
