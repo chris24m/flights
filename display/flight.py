@@ -62,7 +62,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # 1 = until the Pi answers (no Wi-Fi yet, Pi off, unwrapping it on Christmas Day...) play a built-in
 # demo of every screen instead of "NO DATA". 0 = show the plain status message.
 OFFLINE_DEMO = int(os.getenv("OFFLINE_DEMO") if os.getenv("OFFLINE_DEMO") is not None else 1)
-VERSION = "2026.11.10i"
+VERSION = "2026.11.10j"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -324,7 +324,8 @@ root.append(idle_g)
 
 # Facts card: five lines (name, speed, ceiling, first flight, fun fact), sent ready-made by the Pi.
 card_g = displayio.Group()
-c_lines = [label(card_g, 0, y, colour=c) for y, c in ((1, WHITE), (7, CYAN), (13, GREEN), (19, AMBER), (25, GREY))]
+CARD_COLOURS = (WHITE, CYAN, GREEN, AMBER, GREY)
+c_lines = [label(card_g, 0, 1 + 6 * i, colour=c) for i, c in enumerate(CARD_COLOURS)]
 card_scrolls = [Scroller(lab) for lab in c_lines]
 root.append(card_g)
 
@@ -336,10 +337,6 @@ root.append(msg_g)
 
 
 # Diagnostics screen (DEBUG = 2): what the Portal sees, for checking at Dad's without a laptop.
-diag_g = displayio.Group()  # its five labels are only made if the diagnostics screen is used
-d_lines = []
-err_scroll = None
-root.append(diag_g)
 
 
 # --- screen transitions --------------------------------------------------------------
@@ -661,8 +658,13 @@ def run_transition(kind, group, plane):
         display.auto_refresh = True
 
 
+STATUS_COLOURS = (CYAN, WHITE, AMBER, GREEN, RED)
+
+
 def show_diagnostics(now):
-    global brightness, err_scroll
+    """Status screen (UP button, or DEBUG = 2). Borrows the facts card's five text lines rather
+    than keeping five more labels in memory."""
+    global brightness, last_scene
     brightness = max(brightness, 0.3)
     root.hidden = False
     update_rssi()
@@ -670,17 +672,15 @@ def show_diagnostics(now):
     age = ("%dS" % (now - STATE["last_ok"])) if STATE["last_ok"] is not None else "NEVER"
     texts = ("W " + STATE["ssid"][:14], "%s %sDB" % (STATE["ip"] or "NO IP", STATE["rssi"]),
              "PI " + (pi or "?"), "OK %s %s" % (age, STATE["via"].upper()[:6]), STATE["err"].upper() or "NO ERRORS")
-    if not d_lines:
-        d_lines.extend(label(diag_g, 0, y, colour=c) for y, c in ((0, CYAN), (6, WHITE), (12, AMBER), (18, GREEN), (24, RED)))
-        err_scroll = Scroller(d_lines[4])
-    for lab, text in zip(d_lines, texts):
-        set_text(lab, text)
-    err_scroll.tick()
-    show_only(diag_g)
+    for lab, text, colour in zip(c_lines, texts, STATUS_COLOURS):
+        set_text(lab, text, colour, animate=False)
+    card_scrolls[4].tick()
+    show_only(card_g)
+    last_scene = None  # whatever comes next is drawn afresh (no transition from this screen)
 
 
 def show_only(group):
-    for g in (flight_g, alert_g, idle_g, msg_g, diag_g, card_g):
+    for g in (flight_g, alert_g, idle_g, msg_g, card_g):
         g.hidden = g is not group
 
 
@@ -782,7 +782,7 @@ def draw(d, now):
         title_colour = GOLD if style in ("rare", "potd") else parse_colour(d.get("col"), WHITE)
         lines = (d.get("lines") or []) + [""] * 5
         for i, lab in enumerate(c_lines):
-            set_text(lab, lines[i], title_colour if i == 0 else None)
+            set_text(lab, lines[i], title_colour if i == 0 else CARD_COLOURS[i])
         for sc in card_scrolls:
             sc.tick()
         show_only(card_g)
