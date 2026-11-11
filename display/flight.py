@@ -76,7 +76,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # Until the Pi answers, the panel shows a clock with Wi-Fi and Pi icons (red, blinking = the problem).
 # The built-in demo plays only when the DOWN button is pressed (OFFLINE_DEMO is no longer used).
 OFFLINE_BRIGHTNESS = 0.2
-VERSION = "2026.11.11e"
+VERSION = "2026.11.11f"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -870,7 +870,7 @@ def http_get_json(url, query=(), timeout=4):
                 continue
             if n + avail > len(buf):
                 raise ValueError("reply too big")
-            chunk = esp.socket_read(sock, avail)
+            chunk = esp.socket_read(sock, min(avail, 64))  # small pieces: big ones fail once memory is fragmented
             buf[n:n + len(chunk)] = chunk
             start = max(0, n - 3)
             n += len(chunk)
