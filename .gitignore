@@ -5,3 +5,4 @@ antenna/wifi.toml
 .DS_Store
 display/.mpy-cross-*
 display/flight.mpy
+display/demo.mpy

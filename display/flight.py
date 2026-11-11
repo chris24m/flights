@@ -8,6 +8,7 @@ import gc
 import json
 import os
 import random
+import sys
 import time
 
 import bitmaptools
@@ -62,7 +63,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # Until the Pi answers, the panel shows a clock with Wi-Fi and Pi icons (red, blinking = the problem).
 # The built-in demo plays only when the DOWN button is pressed (OFFLINE_DEMO is no longer used).
 OFFLINE_BRIGHTNESS = 0.2
-VERSION = "2026.11.11a"
+VERSION = "2026.11.11b"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -84,6 +85,8 @@ def note_error(text):
     """Remember the latest problem (shown on the diagnostics screen and reported to the Pi)."""
     STATE["err"] = str(text)[:60]
     log("ERROR", text)
+    if "Expected" in str(text) and "but got" in str(text):
+        STATE["esp_bad"] = True  # the Wi-Fi chip stopped answering properly: run() resets it
 STALE_SECONDS = 30  # show "no data" if the Pi hasn't answered for this long
 
 # --- colours (dimmed by the Pi's brightness value) ----------------------------
@@ -1158,40 +1161,13 @@ except Exception:  # noqa: BLE001
     pass
 
 
-# --- offline demo -----------------------------------------------------------------
-# Built-in screens (same format as the Pi's display.json), played 8 s each while there's no data
-# from the Pi, so the panel always does something. The first card says what it's waiting for.
+# --- demo (DOWN button) ----------------------------------------------------------------
+# Built-in screens (in demo.py, same format as the Pi's display.json), 8 s each. The first card
+# says what the panel is waiting for.
 
 DEMO_STEP_S = 8
 DEMO_BRIGHTNESS = 0.3
-OFFLINE = (
-    {"mode": "card", "style": "potd", "callsign": "DEMO", "lines": ["FLIGHT TRACKER", "DEMO MODE", "", "", ""],
-     "transitions": ["flap"]},
-    {"mode": "flight", "callsign": "EZY45T", "airline": "EZY", "col": "#FF6600", "route": "AGP-BOH",
-     "type": "A320", "type_code": "A320", "alt": 2100, "spd": 140, "trk": 80, "trk_txt": "E",
-     "dist_txt": "1.1MI", "sprite": "twin", "transitions": ["flyby"]},
-    {"mode": "card", "style": "facts", "callsign": "EZY45T", "col": "#FF6600", "transitions": ["radar"],
-     "lines": ["AIRBUS A320", "CRUISE 450KT", "CEILING 39000FT", "FIRST FLEW 1987", "ABOUT 180 SEATS"]},
-    {"mode": "alert", "alert": {"level": "rare", "text": "RARE! BOEING 747-400"}, "callsign": "BAW2490",
-     "airline": "BAW", "col": "#3A6FD8", "route": "LHR-BOH", "type": "747-400", "type_code": "B744",
-     "alt": 3800, "spd": 190, "trk": 260, "trk_txt": "W", "dist_txt": "2MI", "sprite": "quad",
-     "transitions": ["flyby"]},
-    {"mode": "alert", "alert": {"level": "military", "text": "RED ARROWS"}, "callsign": "RED1",
-     "type": "HAWK T1", "type_code": "HAWK", "route": "", "alt": 1500, "spd": 300, "trk": 90, "trk_txt": "E",
-     "dist_txt": "", "sprite": "fighter", "transitions": ["slide"]},
-    {"mode": "alert", "alert": {"level": "low", "text": "LOOK UP!"}, "callsign": "RYR52KM", "airline": "RYR",
-     "col": "#F1C933", "route": "BOH-DUB", "type": "737-800", "type_code": "B738", "alt": 1800, "spd": 145,
-     "trk": 80, "trk_txt": "E", "dist_txt": "0.6MI", "sprite": "twin", "transitions": ["dissolve"]},
-    {"mode": "card", "style": "potd", "callsign": "POTD", "transitions": ["radar"],
-     "lines": ["SPITFIRE", "MAX 360KT", "CEILING 43000FT", "FIRST FLEW 1936", "WW2 RAF LEGEND"]},
-    {"mode": "flight", "callsign": "HLE87", "airline": None, "col": "#FF3030", "route": "0.8MI NE",
-     "type": "H135", "type_code": "EC35", "alt": 900, "spd": 110, "trk": 300, "trk_txt": "NW",
-     "dist_txt": "0.8MI", "sprite": "heli", "transitions": ["flyby"]},
-    {"mode": "alert", "alert": {"level": "emergency", "text": "EMERGENCY 7700"}, "callsign": "BAW123",
-     "airline": "BAW", "col": "#3A6FD8", "route": "LGW-BOH", "type": "A320", "type_code": "A320",
-     "alt": 8000, "spd": 280, "trk": 250, "trk_txt": "W", "dist_txt": "4MI", "sprite": "twin",
-     "transitions": ["slide"]},
-)
+_demo = None  # the demo module (demo.py), loaded only while the demo plays: it costs ~3 KB of memory
 
 
 def demo_status():
@@ -1209,13 +1185,26 @@ _demo_step = None
 def draw_demo(now):
     """Draw the demo. False if it failed: the caller switches it off rather than let a demo bug
     restart the board over and over."""
+    global _demo
     try:
+        if _demo is None:
+            gc.collect()
+            import demo
+            _demo = demo
         _draw_demo(now)
         return True
     except Exception as e:  # noqa: BLE001
-        gc.collect()
+        stop_demo()
         note_error("demo off: %r (free %d)" % (e, gc.mem_free()))
         return False
+
+
+def stop_demo():
+    """Unload demo.py again, so its memory goes back to fetching flights."""
+    global _demo
+    _demo = None
+    sys.modules.pop("demo", None)
+    gc.collect()
 
 
 def _draw_demo(now):
@@ -1224,7 +1213,7 @@ def _draw_demo(now):
     if step != _demo_step:
         _demo_step = step
         gc.collect()
-    d = dict(OFFLINE[step % len(OFFLINE)])
+    d = dict(_demo.SCREENS[step % len(_demo.SCREENS)])
     if d["callsign"] == "DEMO":
         d["lines"] = d["lines"][:2] + demo_status()
     d["demo"] = True
@@ -1359,6 +1348,8 @@ def run():
         if down and not was_down:
             force_demo = not force_demo
             log("button: demo", "on" if force_demo else "off")
+            if not force_demo:
+                stop_demo()
             root.hidden = False
             set_text(m1, "DEMO ON" if force_demo else "DEMO OFF", animate=False)
             set_text(m2, "", animate=False)
@@ -1393,6 +1384,20 @@ def run():
                     except Exception:  # noqa: BLE001
                         pass
                     failures = 0
+            if STATE.get("esp_bad"):
+                # "Expected 01 but got 00": the Wi-Fi chip has stopped talking to the Portal properly
+                # and every request will fail until it's restarted. Restart just the chip (2 s);
+                # the next loop reconnects to Wi-Fi.
+                STATE["esp_bad"] = False
+                log("resetting the Wi-Fi chip")
+                close_udp()
+                try:
+                    esp.reset()
+                except Exception as e:  # noqa: BLE001
+                    restart("wifi chip reset failed: %r" % e)
+                STATE["resets"] = STATE.get("resets", 0) + 1
+                if STATE["resets"] >= 5 and data is None:
+                    restart("wifi chip keeps failing")  # whole board, as a last resort
             gc.collect()
             if gc.mem_free() < LOW_MEMORY:
                 restart("low memory: %d free" % gc.mem_free())

@@ -1,0 +1,31 @@
+# Built-in demo screens for the flight display, played 8 s each while the DOWN button's demo is on.
+# Same format as the Pi's display.json. Kept out of flight.py so it only uses memory while it plays.
+
+SCREENS = (
+    {"mode": "card", "style": "potd", "callsign": "DEMO", "lines": ["FLIGHT TRACKER", "DEMO MODE", "", "", ""],
+     "transitions": ["flap"]},
+    {"mode": "flight", "callsign": "EZY45T", "airline": "EZY", "col": "#FF6600", "route": "AGP-BOH",
+     "type": "A320", "type_code": "A320", "alt": 2100, "spd": 140, "trk": 80, "trk_txt": "E",
+     "dist_txt": "1.1MI", "sprite": "twin", "transitions": ["flyby"]},
+    {"mode": "card", "style": "facts", "callsign": "EZY45T", "col": "#FF6600", "transitions": ["radar"],
+     "lines": ["AIRBUS A320", "CRUISE 450KT", "CEILING 39000FT", "FIRST FLEW 1987", "ABOUT 180 SEATS"]},
+    {"mode": "alert", "alert": {"level": "rare", "text": "RARE! BOEING 747-400"}, "callsign": "BAW2490",
+     "airline": "BAW", "col": "#3A6FD8", "route": "LHR-BOH", "type": "747-400", "type_code": "B744",
+     "alt": 3800, "spd": 190, "trk": 260, "trk_txt": "W", "dist_txt": "2MI", "sprite": "quad",
+     "transitions": ["flyby"]},
+    {"mode": "alert", "alert": {"level": "military", "text": "RED ARROWS"}, "callsign": "RED1",
+     "type": "HAWK T1", "type_code": "HAWK", "route": "", "alt": 1500, "spd": 300, "trk": 90, "trk_txt": "E",
+     "dist_txt": "", "sprite": "fighter", "transitions": ["slide"]},
+    {"mode": "alert", "alert": {"level": "low", "text": "LOOK UP!"}, "callsign": "RYR52KM", "airline": "RYR",
+     "col": "#F1C933", "route": "BOH-DUB", "type": "737-800", "type_code": "B738", "alt": 1800, "spd": 145,
+     "trk": 80, "trk_txt": "E", "dist_txt": "0.6MI", "sprite": "twin", "transitions": ["dissolve"]},
+    {"mode": "card", "style": "potd", "callsign": "POTD", "transitions": ["radar"],
+     "lines": ["SPITFIRE", "MAX 360KT", "CEILING 43000FT", "FIRST FLEW 1936", "WW2 RAF LEGEND"]},
+    {"mode": "flight", "callsign": "HLE87", "airline": None, "col": "#FF3030", "route": "0.8MI NE",
+     "type": "H135", "type_code": "EC35", "alt": 900, "spd": 110, "trk": 300, "trk_txt": "NW",
+     "dist_txt": "0.8MI", "sprite": "heli", "transitions": ["flyby"]},
+    {"mode": "alert", "alert": {"level": "emergency", "text": "EMERGENCY 7700"}, "callsign": "BAW123",
+     "airline": "BAW", "col": "#3A6FD8", "route": "LGW-BOH", "type": "A320", "type_code": "A320",
+     "alt": 8000, "spd": 280, "trk": 250, "trk_txt": "W", "dist_txt": "4MI", "sprite": "twin",
+     "transitions": ["slide"]},
+)
