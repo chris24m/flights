@@ -2,7 +2,7 @@
 # Copy the flight display onto the Matrix Portal (Mac). Run from anywhere:
 #   ./display/install.sh
 # Precompiles flight.py to flight.mpy with Adafruit's mpy-cross (downloaded once, matching the
-# board's CircuitPython 10.3.1), then copies code.py, flight.mpy, the fonts and logos onto CIRCUITPY.
+# board's CircuitPython 10.3.1), then copies code.py, flight.mpy, demo.mpy, the fonts and logos onto CIRCUITPY.
 set -euo pipefail
 cd "$(dirname "$0")"
 BOARD="${BOARD:-/Volumes/CIRCUITPY}"
@@ -28,12 +28,13 @@ if [ ! -x "$TOOL" ]; then
 fi
 
 "./$TOOL" -O1 flight.py -o flight.mpy
-cp -X code.py flight.mpy "$BOARD/"
-rm -f "$BOARD/flight.py"           # a .py on the board would be loaded instead of the .mpy
+"./$TOOL" -O1 demo.py -o demo.mpy
+cp -X code.py flight.mpy demo.mpy "$BOARD/"
+rm -f "$BOARD/flight.py" "$BOARD/demo.py"   # a .py on the board would be loaded instead of the .mpy
 mkdir -p "$BOARD/fonts"
 cp -X fonts/*.bdf "$BOARD/fonts/"
 mkdir -p "$BOARD/logos"
 cp -X logos/*.bmp "$BOARD/logos/"
-rm -f flight.mpy
+rm -f flight.mpy demo.mpy
 sync
 echo "Done. The board restarts by itself; the serial log's first line shows the version."

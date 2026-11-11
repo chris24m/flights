@@ -27,11 +27,11 @@ can't be reached remotely once it's at Dad's.
    - `adafruit_portalbase/`, `neopixel.mpy`, `adafruit_bus_device/` (needed by matrixportal)
 
    Or with circup on your laptop: `pip install circup && circup install adafruit_matrixportal adafruit_esp32spi adafruit_display_text adafruit_bitmap_font`
-4. On the Mac, with the board plugged in, run `./display/install.sh`. It precompiles `flight.py` to
-   `flight.mpy` (using Adafruit's `mpy-cross` for CircuitPython 10.3.1, downloaded the first time) and copies
-   `code.py`, `flight.mpy`, `logos/` and `fonts/` onto `CIRCUITPY/`. Precompiling matters: compiling 40 KB of
+4. On the Mac, with the board plugged in, run `./display/install.sh`. It precompiles `flight.py` and `demo.py` to
+   `.mpy` files (using Adafruit's `mpy-cross` for CircuitPython 10.3.1, downloaded the first time) and copies
+   `code.py`, `flight.mpy`, `demo.mpy`, `logos/` and `fonts/` onto `CIRCUITPY/`. Precompiling matters: compiling 40 KB of
    Python on the board itself uses up most of its memory. Run it again after every `git pull`.
-   (By hand, without the script: copy `code.py`, `flight.py`, `logos/` and `fonts/`. It works, with less
+   (By hand, without the script: copy `code.py`, `flight.py`, `demo.py`, `logos/` and `fonts/`. It works, with less
    spare memory.) `fonts/flight-3x5.bdf` is the panel's 3×5-pixel font, made for this layout. Without it the
    code falls back to the built-in font, which is too big.
 5. Copy `settings.toml.example` to `CIRCUITPY/settings.toml` and fill in Wi-Fi. The Pi's address isn't needed:
