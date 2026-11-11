@@ -24,6 +24,12 @@ from adafruit_bitmap_font import bitmap_font
 from adafruit_display_text.bitmap_label import Label  # faster text updates than label.Label
 from adafruit_matrixportal.matrix import Matrix
 
+try:
+    import wifi  # noqa: F401 - only the Matrix Portal S3 (Wi-Fi built in) has this
+    BIG_BOARD = True  # S3: ~10x the M4's memory, so the extra animations are switched on
+except ImportError:
+    BIG_BOARD = False  # M4
+
 _http_buf = bytearray(2048)  # the Pi's replies (~700 bytes); made first, while memory is in one piece
 MEM = []  # free memory after each stage of start-up, logged once the main loop starts
 
@@ -65,8 +71,9 @@ DEBUG = int(os.getenv("DEBUG") or 0)
 # Departure-board "flap" animation when the screen changes (new aircraft, clock <-> flight). 0 = off.
 FLAP = int(os.getenv("FLAP") if os.getenv("FLAP") is not None else 1)
 # Screen-change animations to pick from at random, until the Pi says otherwise (ticked on its
-# settings page): any of flyby, dissolve, flap. Empty = instant.
-ALL_TRANSITIONS = ("flyby", "dissolve", "flap")  # radar and slide dropped to save memory
+# settings page): any of flyby, radar, slide, dissolve, flap. Empty = instant. Radar and slide
+# need memory the M4 can't spare, so they're only on the S3.
+ALL_TRANSITIONS = ("flyby", "radar", "slide", "dissolve", "flap") if BIG_BOARD else ("flyby", "dissolve", "flap")
 _t = os.getenv("TRANSITIONS")
 TRANSITIONS = [x.strip() for x in _t.split(",") if x.strip()] if _t is not None else \
     (list(ALL_TRANSITIONS) if FLAP else [])
@@ -75,7 +82,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # Until the Pi answers, the panel shows a clock with Wi-Fi and Pi icons (red, blinking = the problem).
 # The built-in demo plays only when the DOWN button is pressed (OFFLINE_DEMO is no longer used).
 OFFLINE_BRIGHTNESS = 0.2
-VERSION = "2026.11.11g"
+VERSION = "2026.11.11h"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -501,6 +508,10 @@ overlay_g.append(sprite_g)
 root.append(overlay_g)
 
 
+def rgb565(rgb):
+    return ((rgb >> 8) & 0xF800) | ((rgb >> 5) & 0x07E0) | ((rgb >> 3) & 0x001F)
+
+
 def take_snapshot():
     """Copy the panel's current picture into `snap`. False if the framebuffer can't be read."""
     if not CAN_SNAP:
@@ -581,6 +592,68 @@ def run_flyby(sprite, tail, flip):
         tg.x = 64 - sx - w if flip else sx
 
 
+_radar = None  # angle bucket of each pixel (bytes), S3 only
+RADAR_STEPS = 90
+RADAR_TRAIL = 10  # buckets of fading green behind the beam
+
+
+def _build_radar():
+    """Which angle bucket (0 = 12 o'clock, clockwise) each pixel is in, as one 2 KB bytes object.
+    The sweep finds each bucket's pixels with bytes.find (fast, in C)."""
+    global _radar
+    import math
+    bucket = bytearray(2048)
+    for i in range(2048):
+        x, y = i % 64 - 31.5, (i // 64 - 15.5) * 2  # *2: the sweep looks round on a 2:1 panel
+        a = math.atan2(x, -y)  # 0 = straight up, clockwise
+        bucket[i] = int((a % (2 * math.pi)) / (2 * math.pi) * RADAR_STEPS) % RADAR_STEPS
+    _radar = bytes(bucket)
+    gc.collect()
+
+
+def _radar_paint(b, value):
+    needle = bytes((b,))
+    i = _radar.find(needle)
+    while i >= 0:
+        snap[i] = value
+        i = _radar.find(needle, i + 1)
+
+
+def run_radar():
+    """Radar sweep: a bright green beam sweeps clockwise from 12 o'clock with a fading green
+    afterglow behind it, like a real radar screen, revealing the new screen as the glow fades."""
+    shades = [rgb565(dim(_mix(GREEN, 0.5 + 0.5 * k / RADAR_TRAIL))) for k in range(RADAR_TRAIL)]  # glow starts at half
+    shades[0] = rgb565(dim(0xC0FFC0))  # the beam itself: nearly white
+    painted = -1  # last bucket drawn
+    total = RADAR_STEPS + RADAR_TRAIL
+    for t in _frames(1.6):
+        head = int(t * total)
+        if head == painted:
+            continue
+        for b in range(max(0, painted - RADAR_TRAIL), min(head + 1, RADAR_STEPS)):  # every bucket whose shade changed
+            age = head - b
+            _radar_paint(b, shades[age] if age < RADAR_TRAIL else TRANS)
+        painted = head
+    for b in range(RADAR_STEPS):  # make sure nothing is left over
+        _radar_paint(b, TRANS)
+
+
+def _mix(rgb, k):
+    """rgb faded towards black by k (0 = full, 1 = black)."""
+    f = 1 - k
+    return (int(((rgb >> 16) & 255) * f) << 16) | (int(((rgb >> 8) & 255) * f) << 8) | int((rgb & 255) * f)
+
+
+def run_slide(group):
+    """Departure-board scroll in a random direction: the old screen slides off, the new one follows."""
+    dx, dy = random.choice(((0, -1), (0, 1), (-1, 0), (1, 0)))
+    size = 64 if dx else 32
+    for t in _frames(0.6 if dy else 0.9):
+        k = int(size * t)
+        snap_tg.x, snap_tg.y = dx * k, dy * k
+        group.x, group.y = dx * (k - size), dy * (k - size)
+
+
 def _rev8(i):
     r = 0
     for _ in range(8):
@@ -606,12 +679,19 @@ def run_dissolve():
         done = max(done, upto)
 
 
-OVERLAY_KINDS = ("flyby", "dissolve")
+OVERLAY_KINDS = ("flyby", "radar", "slide", "dissolve")
+if BIG_BOARD:
+    _build_radar()
+
+
+def _available(kind):
+    return not (kind == "radar" and _radar is None)
+
 
 def choose_transition(ticked, has_plane):
     """One of the ticked animations at random. The fly-by needs a plane (not e.g. clock -> plane of
     the day); if it was the only one ticked, use the flap then."""
-    pool = [k for k in ticked if k in ALL_TRANSITIONS and (has_plane or k != "flyby")]
+    pool = [k for k in ticked if k in ALL_TRANSITIONS and (has_plane or k != "flyby") and _available(k)]
     return random.choice(pool) if pool else "flap"
 
 
@@ -621,6 +701,10 @@ def run_transition(kind, group, plane):
         display.auto_refresh = False
         if kind == "flyby":
             run_flyby(*plane)
+        elif kind == "radar":
+            run_radar()
+        elif kind == "slide":
+            run_slide(group)
         elif kind == "dissolve":
             run_dissolve()
     except Exception as e:  # noqa: BLE001 - a broken animation must never stop the display
@@ -802,12 +886,11 @@ def draw(d, now):
 
 # --- Wi-Fi ---------------------------------------------------------------------
 
-try:
-    import wifi  # noqa: F401 - Matrix Portal S3: Wi-Fi is built into the main chip
+if BIG_BOARD:  # Matrix Portal S3: Wi-Fi is built into the main chip
     from netcompat import NativeWifi
     esp = NativeWifi()
     BOARD_KIND = "S3"
-except ImportError:  # Matrix Portal M4: a separate ESP32 Wi-Fi chip on SPI
+else:  # Matrix Portal M4: a separate ESP32 Wi-Fi chip on SPI
     from adafruit_esp32spi import adafruit_esp32spi
     esp = adafruit_esp32spi.ESP_SPIcontrol(
         busio.SPI(board.SCK, board.MOSI, board.MISO),
