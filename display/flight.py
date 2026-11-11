@@ -59,10 +59,10 @@ TRANSITIONS = [x.strip() for x in _t.split(",") if x.strip()] if _t is not None 
     (list(ALL_TRANSITIONS) if FLAP else [])
 # If the transitions show odd colours on the real panel, set SNAP_SWAPPED = 1 (byte order of the snapshot).
 SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
-# 1 = until the Pi answers (no Wi-Fi yet, Pi off, unwrapping it on Christmas Day...) play a built-in
-# demo of every screen instead of "NO DATA". 0 = show the plain status message.
-OFFLINE_DEMO = int(os.getenv("OFFLINE_DEMO") if os.getenv("OFFLINE_DEMO") is not None else 1)
-VERSION = "2026.11.10j"
+# Until the Pi answers, the panel shows a clock with Wi-Fi and Pi icons (red, blinking = the problem).
+# The built-in demo plays only when the DOWN button is pressed (OFFLINE_DEMO is no longer used).
+OFFLINE_BRIGHTNESS = 0.2
+VERSION = "2026.11.11a"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -320,6 +320,37 @@ i_date = label(idle_g, 0, 14, colour=GREY)
 i_last = label(idle_g, 0, 20, colour=CYAN)
 i_stats = label(idle_g, 0, 26, colour=GREEN)
 last_scroll = Scroller(i_last)
+# Wi-Fi and Pi icons, top right of the clock, shown only while the Pi isn't answering.
+icons_g = displayio.Group()
+icons_g.hidden = True
+idle_g.append(icons_g)
+
+
+def _icon(rows, x):
+    bmp = displayio.Bitmap(len(rows[0]), len(rows), 2)
+    for y, row in enumerate(rows):
+        for xx, ch in enumerate(row):
+            if ch == "X":
+                bmp[xx, y] = 1
+    pal = displayio.Palette(2)
+    pal.make_transparent(0)
+    icons_g.append(displayio.TileGrid(bmp, pixel_shader=pal, x=x, y=1))
+    return pal
+
+
+wifi_pal = _icon((".XXXXX.",
+                  "X.....X",
+                  "..XXX..",
+                  ".X...X.",
+                  ".......",
+                  "...X..."), 45)
+pi_pal = _icon((".X...X.",  # a mast sending out signals: the Pi and its aerial
+                "X..X..X",
+                "X.XXX.X",
+                "X..X..X",
+                ".X.X.X.",
+                "...X...",
+                "..XXX.."), 56)
 root.append(idle_g)
 
 # Facts card: five lines (name, speed, ceiling, first flight, fun fact), sent ready-made by the Pi.
@@ -807,12 +838,13 @@ def draw(d, now):
         set_text(i_temp, wx[0])
         set_text(i_wx, wx[1] if len(wx) > 1 else "")
         set_text(i_date, d.get("date"))
-        set_text(i_last, d.get("last") or "WAITING FOR AIRCRAFT")
+        set_text(i_last, d.get("last") or "WAITING FOR AIRCRAFT", CYAN)
         if int(now / 5) % 2:  # alternate every 5 s
-            set_text(i_stats, "%s PLANES TODAY" % d.get("today", 0), animate=False)
+            set_text(i_stats, "%s PLANES TODAY" % d.get("today", 0), GREEN, animate=False)
         else:
             set_text(i_stats, "FURTHEST " + (d.get("furthest_txt") or "%sKM" % d.get("furthest_km", 0)),
-                     animate=False)
+                     GREEN, animate=False)
+        icons_g.hidden = True
         show_only(idle_g)
     if kind in OVERLAY_KINDS:
         group = idle_g  # (CircuitPython's next() has no default argument, so a plain loop)
@@ -1174,16 +1206,15 @@ _demo_step = None
 
 
 def draw_demo(now):
-    """Draw the demo; if it ever fails, switch it off (and fall back to status messages) rather than
-    let a demo bug restart the board over and over before it can reach the Pi."""
-    global OFFLINE_DEMO
+    """Draw the demo. False if it failed: the caller switches it off rather than let a demo bug
+    restart the board over and over."""
     try:
         _draw_demo(now)
+        return True
     except Exception as e:  # noqa: BLE001
-        OFFLINE_DEMO = 0
         gc.collect()
         note_error("demo off: %r (free %d)" % (e, gc.mem_free()))
-        message("NO DATA", "IS THE PI ON?")
+        return False
 
 
 def _draw_demo(now):
@@ -1196,25 +1227,103 @@ def _draw_demo(now):
     if d["callsign"] == "DEMO":
         d["lines"] = d["lines"][:2] + demo_status()
     d["demo"] = True
-    # overnight (the Pi last said "off"): stay off; otherwise not too bright
-    d["brightness"] = 0 if brightness <= 0 and STATE["last_ok"] is not None else DEMO_BRIGHTNESS
+    d["brightness"] = DEMO_BRIGHTNESS  # asked for with the button, so always on
     draw(d, now)
     tick_flaps(now)
     banner_scroll.tick()
 
 
-# --- main loop -----------------------------------------------------------------
+# --- clock while the Pi isn't answering ----------------------------------------------
+# The time comes from the Pi ("clock" in display.json: local time, seconds since 1970) or, before
+# the Pi has ever answered, from the internet via the Wi-Fi chip (UTC, turned into UK time here).
 
-if not NETWORKS:
-    note_error("no WIFI_SSID_1 in settings.toml")
-    while True:
-        wdt.feed()
-        if OFFLINE_DEMO:
-            draw_demo(time.monotonic())
-            time.sleep(0.05)
-        else:
-            message("SETUP NEEDED", "SETTINGS.TOML")
-            time.sleep(1)
+_clock = None      # local seconds since 1970, minus _secs() when it was set
+_clock_from = ""   # "pi" or "ntp"
+_ntp_next = 0
+DAYS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+MONTHS = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
+
+
+def _secs():
+    return time.monotonic_ns() // 1000000000  # whole seconds, without float rounding after weeks
+
+
+def set_clock(local, source):
+    global _clock, _clock_from
+    _clock, _clock_from = int(local) - _secs(), source
+
+
+def uk_time(utc):
+    """UTC -> UK time: BST from 1am UTC on the last Sunday in March to the last Sunday in October."""
+    t = time.localtime(utc)
+    m = t.tm_mon
+    if m in (3, 10):
+        w31 = (t.tm_wday + 31 - t.tm_mday) % 7      # weekday of the 31st (Monday = 0)
+        last_sunday = 31 - (w31 + 1) % 7
+        after = t.tm_mday > last_sunday or (t.tm_mday == last_sunday and t.tm_hour >= 1)
+        bst = after if m == 3 else not after
+    else:
+        bst = 3 < m < 10
+    return utc + (3600 if bst else 0)
+
+
+def ntp_clock():
+    """Ask the Wi-Fi chip for the time, if the Pi hasn't told us (at most once a minute)."""
+    global _ntp_next
+    if _clock_from == "pi" or time.monotonic() < _ntp_next:
+        return
+    _ntp_next = time.monotonic() + (60 if _clock is None else 3600)
+    try:
+        set_clock(uk_time(esp.get_time()[0]), "ntp")
+        log("clock from the internet")
+    except Exception as e:  # noqa: BLE001 - not synced yet: try again later
+        dbg("ntp:", e)
+
+
+def wifi_up():
+    try:
+        return esp.is_connected
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def draw_offline(now):
+    """Clock page with Wi-Fi and Pi icons: red and blinking is what's wrong; the line underneath says it."""
+    global brightness, last_scene
+    # The Pi turned the panel off for the night and then went quiet: stay off for up to 8 hours.
+    night = brightness <= 0 and STATE["last_ok"] is not None and now - STATE["last_ok"] < 8 * 3600
+    brightness = 0 if night else OFFLINE_BRIGHTNESS
+    root.hidden = night
+    have_wifi = bool(NETWORKS) and wifi_up()
+    if not NETWORKS:
+        text = "SETUP NEEDED: WIFI IN SETTINGS.TOML"
+    elif not have_wifi:
+        text = "NO WIFI - " + ("WEAK SIGNAL?" if _net_misses >= 3 else "CONNECTING")
+    else:
+        text = "NO PI - IS IT ON?" if STATE["last_ok"] is not None else "LOOKING FOR PI"
+    if _clock is None:
+        hhmm, date = "--:--", ""
+    else:
+        t = time.localtime(_clock + _secs())
+        hhmm = "%02d:%02d" % (t.tm_hour, t.tm_min)
+        date = "%s %d %s" % (DAYS[t.tm_wday], t.tm_mday, MONTHS[t.tm_mon - 1])
+    set_text(i_time, hhmm, WHITE, animate=False)
+    set_text(i_temp, "", animate=False)
+    set_text(i_wx, "", animate=False)
+    set_text(i_date, date, GREY, animate=False)
+    set_text(i_last, text, AMBER if have_wifi else RED, animate=False)
+    set_text(i_stats, "UP:INFO DN:DEMO", GREY, animate=False)
+    blink = dim(RED) if int(now * 2) % 2 == 0 else 0
+    wifi_pal[1] = dim(GREEN) if have_wifi else blink
+    pi_pal[1] = blink if have_wifi else dim(GREY)  # grey: can't tell yet without Wi-Fi
+    icons_g.hidden = False
+    tick_flaps(now)  # finish any flap left over from the last real screen
+    last_scroll.tick()
+    show_only(idle_g)
+    last_scene = None  # the next real screen is drawn afresh
+
+
+# --- main loop -----------------------------------------------------------------
 
 
 # The two buttons on the Portal (next to reset):
@@ -1237,11 +1346,9 @@ def _pressed(btn):
 
 
 def run():
-    global brightness
     data, last_ok, next_poll, failures, attempts = None, 0, 0, 0, 0
     show_status, force_demo, was_up, was_down = False, False, False, False
-    if OFFLINE_DEMO:
-        draw_demo(time.monotonic())  # something on screen straight away
+    draw_offline(time.monotonic())  # the clock page straight away, while Wi-Fi connects
     while True:
         wdt.feed()
         up, down = _pressed(BTN_UP), _pressed(BTN_DOWN)
@@ -1259,16 +1366,20 @@ def run():
         was_up, was_down = up, down
         now = time.monotonic()
         fresh = data is not None and now - last_ok < STALE_SECONDS
-        demo = OFFLINE_DEMO and not fresh and DEBUG < 2
-        if now >= next_poll:
-            # While the demo plays, check less often and more briefly so it keeps moving.
-            next_poll = now + (POLL_SECONDS if not demo else 15)
+        if now >= next_poll and NETWORKS:
+            # While the Pi isn't answering (clock page or demo showing), check less often and more
+            # briefly so the screen keeps going, and don't cover it with Wi-Fi messages.
+            next_poll = now + (POLL_SECONDS if fresh else 15)
             attempts += 1
             new = None
-            if connect_wifi(quiet=demo):
-                new = fetch(listen=not demo or attempts % 2 == 0)
+            if connect_wifi(quiet=not fresh):
+                new = fetch(listen=fresh or attempts % 2 == 0)
+                if new is None:
+                    ntp_clock()
             if new is not None:
                 data, last_ok, failures = new, time.monotonic(), 0
+                if isinstance(new.get("clock"), int):
+                    set_clock(new["clock"], "pi")
             else:
                 failures += 1
                 # Reset the Wi-Fi link (the next loop reconnects) only if the Pi has answered before
@@ -1286,23 +1397,18 @@ def run():
                 restart("low memory: %d free" % gc.mem_free())
             now = time.monotonic()
             fresh = data is not None and now - last_ok < STALE_SECONDS
-            demo = OFFLINE_DEMO and not fresh and DEBUG < 2
         if DEBUG >= 2 or show_status:
             show_diagnostics(now)
         elif force_demo:
-            draw_demo(now)
+            if not draw_demo(now):
+                force_demo = False
         elif fresh:
             draw(data, now)
             tick_flaps(now)
             last_scroll.tick()
             banner_scroll.tick()
-        elif demo:
-            draw_demo(now)
         else:
-            # Pi gone quiet: say so, dimly. If the panel was off (overnight), stay off.
-            brightness = min(brightness, 0.15) if brightness > 0 else 0
-            root.hidden = brightness <= 0
-            message("NO DATA", "IS THE PI ON?")
+            draw_offline(now)
         time.sleep(0.05)
 
 
