@@ -87,7 +87,12 @@ settings page (none ticked = instant):
 | dissolve | sparkle from one screen to the other |
 | flap | split-flap letters (also used between a plane's details and its facts card, whatever the setting) |
 
-The fly-by, radar, slide and dissolve work by copying the panel's current picture into a full-screen
+**On the Matrix Portal M4 only the flap is on.** The fly-by, radar, slide and dissolve live in
+`transitions.py` and need about 7 KB of memory all the time, which leaves the M4 too little to fetch
+flights reliably. `FANCY_TRANSITIONS = 1` in settings.toml turns them back on (worth trying on a
+bigger board such as the Matrix Portal S3); ticking them on the Pi does nothing without it.
+
+They work by copying the panel's current picture into a full-screen
 bitmap and eating it away. If the panel ever shows them in odd colours, add `SNAP_SWAPPED = 1` to
 `settings.toml`; if anything about them goes wrong the Portal falls back to the flap and notes the
 error (visible on the Pi's /debug page).

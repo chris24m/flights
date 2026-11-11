@@ -6,3 +6,4 @@ antenna/wifi.toml
 display/.mpy-cross-*
 display/flight.mpy
 display/demo.mpy
+display/transitions.mpy

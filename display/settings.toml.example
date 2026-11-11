@@ -18,5 +18,8 @@ DEBUG = 0
 # Animations when the screen changes, one picked at random each time, until the Pi says otherwise
 # (tick them on the Pi's settings page). "" = instant.
 TRANSITIONS = "flyby,radar,slide,dissolve,flap"
+# 1 = allow the fly-by, radar, slide and dissolve animations too. They use ~7 KB of memory, which
+# the Matrix Portal M4 can't spare (flights stop loading), so leave at 0 unless on a bigger board.
+FANCY_TRANSITIONS = 0
 # Only if the fly-by / radar / slide / dissolve animations show wrong colours on the panel:
 # SNAP_SWAPPED = 1
