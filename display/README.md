@@ -65,11 +65,10 @@ The two small buttons next to reset on the Portal:
 
 ## When the Pi isn't answering
 
-Just plugged in, no Wi-Fi, Pi switched off: the panel shows the clock page with two icons top right,
-Wi-Fi and the Pi (an aerial mast). The one that's the problem is red and blinking, and the line
-underneath says what's wrong (NO WIFI - CONNECTING / NO WIFI - WEAK SIGNAL? / LOOKING FOR PI /
-NO PI - IS IT ON? / SETUP NEEDED). A green Wi-Fi icon means Wi-Fi is fine; a grey Pi icon means it
-can't check the Pi until Wi-Fi works. The clock comes from the Pi (it keeps ticking if the Pi goes
+Just plugged in, no Wi-Fi, Pi switched off: the panel shows the clock page with one blinking red icon top right:
+Wi-Fi when there's no Wi-Fi, or the Pi (an aerial mast) when Wi-Fi is fine but the Pi isn't
+answering. The line underneath says what's wrong (NO WIFI - CONNECTING / NO WIFI - WEAK SIGNAL? /
+LOOKING FOR PI / NO PI - IS IT ON? / SETUP NEEDED). With live data there are no icons. The clock comes from the Pi (it keeps ticking if the Pi goes
 quiet) or, before the Pi has ever answered, from the internet over Wi-Fi (UK time, BST handled);
 `--:--` until it has either. It keeps trying in the background and switches to live data as soon as
 the Pi answers. If the Pi had said "off for the night" before going quiet, the panel stays off for up

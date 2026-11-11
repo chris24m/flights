@@ -320,7 +320,7 @@ i_date = label(idle_g, 0, 14, colour=GREY)
 i_last = label(idle_g, 0, 20, colour=CYAN)
 i_stats = label(idle_g, 0, 26, colour=GREEN)
 last_scroll = Scroller(i_last)
-# Wi-Fi and Pi icons, top right of the clock, shown only while the Pi isn't answering.
+# Wi-Fi or Pi icon, top right of the clock: only while there's a problem, and only the one that's wrong.
 icons_g = displayio.Group()
 icons_g.hidden = True
 idle_g.append(icons_g)
@@ -334,17 +334,18 @@ def _icon(rows, x):
                 bmp[xx, y] = 1
     pal = displayio.Palette(2)
     pal.make_transparent(0)
-    icons_g.append(displayio.TileGrid(bmp, pixel_shader=pal, x=x, y=1))
-    return pal
+    tg = displayio.TileGrid(bmp, pixel_shader=pal, x=x, y=1)
+    icons_g.append(tg)
+    return tg, pal
 
 
-wifi_pal = _icon((".XXXXX.",
+wifi_tg, wifi_pal = _icon((".XXXXX.",
                   "X.....X",
                   "..XXX..",
                   ".X...X.",
                   ".......",
-                  "...X..."), 45)
-pi_pal = _icon((".X...X.",  # a mast sending out signals: the Pi and its aerial
+                  "...X..."), 57)
+pi_tg, pi_pal = _icon((".X...X.",  # a mast sending out signals: the Pi and its aerial
                 "X..X..X",
                 "X.XXX.X",
                 "X..X..X",
@@ -1288,7 +1289,7 @@ def wifi_up():
 
 
 def draw_offline(now):
-    """Clock page with Wi-Fi and Pi icons: red and blinking is what's wrong; the line underneath says it."""
+    """Clock page with a blinking red Wi-Fi or Pi icon (whichever is wrong); the line underneath says it."""
     global brightness, last_scene
     # The Pi turned the panel off for the night and then went quiet: stay off for up to 8 hours.
     night = brightness <= 0 and STATE["last_ok"] is not None and now - STATE["last_ok"] < 8 * 3600
@@ -1313,9 +1314,9 @@ def draw_offline(now):
     set_text(i_date, date, GREY, animate=False)
     set_text(i_last, text, AMBER if have_wifi else RED, animate=False)
     set_text(i_stats, "UP:INFO DN:DEMO", GREY, animate=False)
-    blink = dim(RED) if int(now * 2) % 2 == 0 else 0
-    wifi_pal[1] = dim(GREEN) if have_wifi else blink
-    pi_pal[1] = blink if have_wifi else dim(GREY)  # grey: can't tell yet without Wi-Fi
+    wifi_pal[1] = pi_pal[1] = dim(RED) if int(now * 2) % 2 == 0 else 0  # blinking red
+    wifi_tg.hidden = have_wifi  # no Wi-Fi: the Wi-Fi icon. Wi-Fi fine: the Pi icon.
+    pi_tg.hidden = not have_wifi
     icons_g.hidden = False
     tick_flaps(now)  # finish any flap left over from the last real screen
     last_scroll.tick()

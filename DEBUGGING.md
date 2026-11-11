@@ -75,8 +75,8 @@ Fake planes never go into the daily stats or "last seen". `/debug` and display.j
 
 ## If the panel shows the clock with a red icon
 
-While the Pi isn't answering, the Portal shows its clock page with Wi-Fi and Pi icons; the red,
-blinking one is the problem and the line under the date says which: NO WIFI, LOOKING FOR PI,
+While the Pi isn't answering, the Portal shows its clock page with a red, blinking icon (Wi-Fi or
+the Pi, whichever is the problem) and the line under the date says which: NO WIFI, LOOKING FOR PI,
 NO PI - IS IT ON? or SETUP NEEDED. Press UP for the full status screen.
 
 1. `/debug` → `clients`: is the Portal listed with a recent `last_seen_ago_s`? If yes, the link works and
