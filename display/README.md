@@ -38,8 +38,9 @@ can't be reached remotely once it's at Dad's.
    the Pi broadcasts it every 3 s and the Portal picks it up (and remembers it across power cuts). It also tries
    `http://flighttracker:8080`. Set `DISPLAY_URLS` only if neither works on some network.
 
-The panel shows `WIFI...`, then the flight or idle screen. `NO DATA / IS THE PI ON?` means
-Wi-Fi is fine but the Pi didn't answer: check `curl http://<pi-ip>:8080/display.json`.
+The panel shows the clock page, then the flight or idle screen once the Pi answers. A red
+blinking Pi icon (`LOOKING FOR PI` / `NO PI - IS IT ON?`) means Wi-Fi is fine but the Pi didn't
+answer: check `curl http://<pi-ip>:8080/display.json`.
 Serial console (`screen /dev/tty.usbmodem* 115200`, or Mu / Thonny) shows the errors.
 
 ## Screens
@@ -57,19 +58,21 @@ Use the Pi's test mode to see each one: `curl "http://<pi-ip>:8080/test?scenario
 The two small buttons next to reset on the Portal:
 
 - **UP**: status screen on/off. Shows the Wi-Fi network, signal strength, the Pi's address, how long ago the
-  Pi last answered, and the latest error.
-- **DOWN**: demo on/off. Plays the built-in demo even while the Pi is sending real flights (press again to go back).
+  Pi last answered, and the latest error. Press again to go back.
+- **DOWN**: demo on/off. Plays the built-in demo (an easyJet A320, its facts card, a rare 747, the Red
+  Arrows, LOOK UP, a Spitfire plane of the day, a helicopter and a 7700, 8 s each, with every transition),
+  whether or not the Pi is answering. Press again to go back.
 
-## Offline demo
+## When the Pi isn't answering
 
-Until the Pi answers (just plugged in, no Wi-Fi yet, Pi switched off, unwrapping it on Christmas
-Day...) the Portal plays a built-in demo instead of a "NO DATA" message: a title card saying what
-it's waiting for (NO WIFI YET / LOOKING FOR PI / SETUP NEEDED), then an easyJet A320, its facts
-card, a rare 747, the Red Arrows, LOOK UP, a Spitfire plane of the day, a helicopter and a 7700,
-8 s each, with every transition. It keeps trying the Wi-Fi and the Pi in the background (the demo
-pauses for a few seconds while it does) and switches to live data as soon as it gets some. If the
-Pi had said "off for the night" before going quiet, the panel stays off.
-`OFFLINE_DEMO = 0` in settings.toml brings back the plain status messages.
+Just plugged in, no Wi-Fi, Pi switched off: the panel shows the clock page with one blinking red icon top right:
+Wi-Fi when there's no Wi-Fi, or the Pi (an aerial mast) when Wi-Fi is fine but the Pi isn't
+answering. The line underneath says what's wrong (NO WIFI - CONNECTING / NO WIFI - WEAK SIGNAL? /
+LOOKING FOR PI / NO PI - IS IT ON? / SETUP NEEDED). With live data there are no icons. The clock comes from the Pi (it keeps ticking if the Pi goes
+quiet) or, before the Pi has ever answered, from the internet over Wi-Fi (UK time, BST handled);
+`--:--` until it has either. It keeps trying in the background and switches to live data as soon as
+the Pi answers. If the Pi had said "off for the night" before going quiet, the panel stays off for up
+to 8 hours.
 
 ## Transitions
 

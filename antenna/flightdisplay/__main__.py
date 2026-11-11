@@ -167,6 +167,8 @@ class Service:
         dt = datetime.fromtimestamp(now)
         common = {
             "time": dt.strftime("%H:%M"),
+            # local time as seconds since 1970, so the Portal's clock keeps going if the Pi goes quiet
+            "clock": int(now) + time.localtime(now).tm_gmtoff,
             "brightness": brightness_at(self.cfg.get("brightness", {}).get("schedule"), dt),
             "test": self.test.scenario,
             "status": ("simulated" if self.simulated else "ok") if self.receiver_ok else "receiver offline",
