@@ -4,6 +4,21 @@ The Matrix Portal polls the antenna Pi's `/display.json` every 3 s and draws it.
 deciding (which aircraft, alerts, brightness, clock) happens on the Pi, because the Portal
 can't be reached remotely once it's at Dad's.
 
+## Which board
+
+The same code runs on the **Matrix Portal M4** and the **Matrix Portal S3**. The serial log's first
+line says which it found (`on M4` / `on S3`). The S3 is the better choice: about 10× the memory
+(the M4 runs short and restarts itself every few minutes) and Wi-Fi built into the main chip, so
+there's no separate Wi-Fi chip to lose touch with. It's the same size and plugs onto the panel the
+same way. Differences when setting up an S3:
+
+- Step 1: the CircuitPython download is for **"Matrix Portal S3"** (double-tap reset; the drive
+  that appears is called something like `MATRXS3BOOT`).
+- Step 2 doesn't apply (no separate Wi-Fi chip).
+- Step 3: `circup install adafruit_matrixportal adafruit_display_text adafruit_bitmap_font`
+  (no `adafruit_esp32spi`).
+- `install.sh` is the same; `settings.toml` is the same (copy it across).
+
 ## One-time setup (week 2)
 
 > **Which way round the Portal goes.** It plugs onto the panel's INPUT socket, but its socket

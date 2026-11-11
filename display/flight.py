@@ -22,7 +22,6 @@ from watchdog import WatchDogMode
 
 from adafruit_bitmap_font import bitmap_font
 from adafruit_display_text.bitmap_label import Label  # faster text updates than label.Label
-from adafruit_esp32spi import adafruit_esp32spi
 from adafruit_matrixportal.matrix import Matrix
 
 _http_buf = bytearray(2048)  # the Pi's replies (~700 bytes); made first, while memory is in one piece
@@ -76,7 +75,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # Until the Pi answers, the panel shows a clock with Wi-Fi and Pi icons (red, blinking = the problem).
 # The built-in demo plays only when the DOWN button is pressed (OFFLINE_DEMO is no longer used).
 OFFLINE_BRIGHTNESS = 0.2
-VERSION = "2026.11.11f"
+VERSION = "2026.11.11g"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -803,9 +802,17 @@ def draw(d, now):
 
 # --- Wi-Fi ---------------------------------------------------------------------
 
-esp = adafruit_esp32spi.ESP_SPIcontrol(
-    busio.SPI(board.SCK, board.MOSI, board.MISO),
-    DigitalInOut(board.ESP_CS), DigitalInOut(board.ESP_BUSY), DigitalInOut(board.ESP_RESET))
+try:
+    import wifi  # noqa: F401 - Matrix Portal S3: Wi-Fi is built into the main chip
+    from netcompat import NativeWifi
+    esp = NativeWifi()
+    BOARD_KIND = "S3"
+except ImportError:  # Matrix Portal M4: a separate ESP32 Wi-Fi chip on SPI
+    from adafruit_esp32spi import adafruit_esp32spi
+    esp = adafruit_esp32spi.ESP_SPIcontrol(
+        busio.SPI(board.SCK, board.MOSI, board.MISO),
+        DigitalInOut(board.ESP_CS), DigitalInOut(board.ESP_BUSY), DigitalInOut(board.ESP_RESET))
+    BOARD_KIND = "M4"
 # Plain HTTP straight over the ESP32's sockets, into one buffer made at power-on (_http_buf,
 # near the top): the adafruit_requests library needs ~15 KB of memory this board can't spare.
 
@@ -1123,7 +1130,7 @@ try:
     RESET_REASON = str(microcontroller.cpu.reset_reason).split(".")[-1]  # e.g. POWER_ON, WATCHDOG
 except Exception:  # noqa: BLE001
     RESET_REASON = "UNKNOWN"
-log("flight display", VERSION, "starting; reset reason:", RESET_REASON, "debug:", DEBUG, "free:", gc.mem_free())
+log("flight display", VERSION, "on", BOARD_KIND, "starting; reset reason:", RESET_REASON, "debug:", DEBUG, "free:", gc.mem_free())
 try:
     n = microcontroller.nvm[256]
     if 0 < n <= 120:
