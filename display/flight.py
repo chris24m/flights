@@ -62,7 +62,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # Until the Pi answers, the panel shows a clock with Wi-Fi and Pi icons (red, blinking = the problem).
 # The built-in demo plays only when the DOWN button is pressed (OFFLINE_DEMO is no longer used).
 OFFLINE_BRIGHTNESS = 0.2
-VERSION = "2026.11.11a"
+VERSION = "2026.11.11b"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -84,6 +84,8 @@ def note_error(text):
     """Remember the latest problem (shown on the diagnostics screen and reported to the Pi)."""
     STATE["err"] = str(text)[:60]
     log("ERROR", text)
+    if "Expected" in str(text) and "but got" in str(text):
+        STATE["esp_bad"] = True  # the Wi-Fi chip stopped answering properly: run() resets it
 STALE_SECONDS = 30  # show "no data" if the Pi hasn't answered for this long
 
 # --- colours (dimmed by the Pi's brightness value) ----------------------------
@@ -1393,6 +1395,20 @@ def run():
                     except Exception:  # noqa: BLE001
                         pass
                     failures = 0
+            if STATE.get("esp_bad"):
+                # "Expected 01 but got 00": the Wi-Fi chip has stopped talking to the Portal properly
+                # and every request will fail until it's restarted. Restart just the chip (2 s);
+                # the next loop reconnects to Wi-Fi.
+                STATE["esp_bad"] = False
+                log("resetting the Wi-Fi chip")
+                close_udp()
+                try:
+                    esp.reset()
+                except Exception as e:  # noqa: BLE001
+                    restart("wifi chip reset failed: %r" % e)
+                STATE["resets"] = STATE.get("resets", 0) + 1
+                if STATE["resets"] >= 5 and data is None:
+                    restart("wifi chip keeps failing")  # whole board, as a last resort
             gc.collect()
             if gc.mem_free() < LOW_MEMORY:
                 restart("low memory: %d free" % gc.mem_free())
