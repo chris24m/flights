@@ -82,12 +82,11 @@ settings page (none ticked = instant):
 | Name | What it does |
 |---|---|
 | flyby | a top-down plane (twin jet, 4-engine, prop, fighter or helicopter, picked from the type) flies across the way the aircraft is heading: eastbound left to right, westbound right to left. A `>`-shaped black band clears the old screen ahead of it and reveals the new one behind its tail. When a plane leaves, it flies off. |
-| radar | a green radar line sweeps clockwise from 12 o'clock, revealing the new screen |
-| slide | departure-board scroll in a random direction (up, down, left or right) |
 | dissolve | sparkle from one screen to the other |
 | flap | split-flap letters (also used between a plane's details and its facts card, whatever the setting) |
 
-The fly-by, radar, slide and dissolve work by copying the panel's current picture into a full-screen
+Radar and slide were removed to save memory on the M4 (ticking them on the Pi gives the flap).
+The fly-by and dissolve work by copying the panel's current picture into a full-screen
 bitmap and eating it away. If the panel ever shows them in odd colours, add `SNAP_SWAPPED = 1` to
 `settings.toml`; if anything about them goes wrong the Portal falls back to the flap and notes the
 error (visible on the Pi's /debug page).

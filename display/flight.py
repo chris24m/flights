@@ -66,8 +66,8 @@ DEBUG = int(os.getenv("DEBUG") or 0)
 # Departure-board "flap" animation when the screen changes (new aircraft, clock <-> flight). 0 = off.
 FLAP = int(os.getenv("FLAP") if os.getenv("FLAP") is not None else 1)
 # Screen-change animations to pick from at random, until the Pi says otherwise (ticked on its
-# settings page): any of flyby, radar, slide, dissolve, flap. Empty = instant.
-ALL_TRANSITIONS = ("flyby", "radar", "slide", "dissolve", "flap")
+# settings page): any of flyby, dissolve, flap. Empty = instant.
+ALL_TRANSITIONS = ("flyby", "dissolve", "flap")  # radar and slide dropped to save memory
 _t = os.getenv("TRANSITIONS")
 TRANSITIONS = [x.strip() for x in _t.split(",") if x.strip()] if _t is not None else \
     (list(ALL_TRANSITIONS) if FLAP else [])
@@ -76,7 +76,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # Until the Pi answers, the panel shows a clock with Wi-Fi and Pi icons (red, blinking = the problem).
 # The built-in demo plays only when the DOWN button is pressed (OFFLINE_DEMO is no longer used).
 OFFLINE_BRIGHTNESS = 0.2
-VERSION = "2026.11.11c"
+VERSION = "2026.11.11e"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -502,10 +502,6 @@ overlay_g.append(sprite_g)
 root.append(overlay_g)
 
 
-def rgb565(rgb):
-    return ((rgb >> 8) & 0xF800) | ((rgb >> 5) & 0x07E0) | ((rgb >> 3) & 0x001F)
-
-
 def take_snapshot():
     """Copy the panel's current picture into `snap`. False if the framebuffer can't be read."""
     if not CAN_SNAP:
@@ -586,56 +582,6 @@ def run_flyby(sprite, tail, flip):
         tg.x = 64 - sx - w if flip else sx
 
 
-_radar = None  # angle bucket of each pixel (bytes)
-RADAR_STEPS = 72
-
-
-def _build_radar():
-    """Which angle bucket (0 = 12 o'clock, clockwise) each pixel is in, as one 2 KB bytes object,
-    built once at power-on. The sweep finds each bucket's pixels with bytes.find (fast, in C)."""
-    global _radar
-    import math
-    bucket = bytearray(2048)
-    for i in range(2048):
-        x, y = i % 64 - 31.5, i // 64 - 15.5
-        a = math.atan2(x, -y)  # 0 = straight up, clockwise
-        bucket[i] = int((a % (2 * math.pi)) / (2 * math.pi) * RADAR_STEPS) % RADAR_STEPS
-    _radar = bytes(bucket)
-    del bucket
-    gc.collect()
-
-
-def _radar_paint(b, value):
-    needle = bytes((b,))
-    i = _radar.find(needle)
-    while i >= 0:
-        snap[i] = value
-        i = _radar.find(needle, i + 1)
-
-
-def run_radar():
-    """Radar sweep: a green line sweeps clockwise from 12 o'clock, revealing the new screen."""
-    beam = rgb565(dim(GREEN))
-    done = 0  # buckets fully revealed
-    for t in _frames(1.2):
-        upto = int(t * RADAR_STEPS)
-        for b in range(done, upto):
-            _radar_paint(b, TRANS)
-        done = max(done, upto)
-        if done < RADAR_STEPS:
-            _radar_paint(done, beam)
-
-
-def run_slide(group):
-    """Departure-board scroll in a random direction: the old screen slides off, the new one follows."""
-    dx, dy = random.choice(((0, -1), (0, 1), (-1, 0), (1, 0)))
-    size = 64 if dx else 32
-    for t in _frames(0.6 if dy else 0.9):
-        k = int(size * t)
-        snap_tg.x, snap_tg.y = dx * k, dy * k
-        group.x, group.y = dx * (k - size), dy * (k - size)
-
-
 def _rev8(i):
     r = 0
     for _ in range(8):
@@ -661,25 +607,12 @@ def run_dissolve():
         done = max(done, upto)
 
 
-OVERLAY_KINDS = ("flyby", "radar", "slide", "dissolve")
-
-# Build the radar and sparkle tables now, at power-on. Asked for later (after Wi-Fi, fonts and
-# JSON have chopped the memory into small pieces) a 4 KB block may not exist any more.
-try:
-    _build_radar()
-except MemoryError as _e:
-    print("radar table: %r" % (_e,))
-gc.collect()
-
-
-def _available(kind):
-    return not (kind == "radar" and _radar is None)
-
+OVERLAY_KINDS = ("flyby", "dissolve")
 
 def choose_transition(ticked, has_plane):
     """One of the ticked animations at random. The fly-by needs a plane (not e.g. clock -> plane of
     the day); if it was the only one ticked, use the flap then."""
-    pool = [k for k in ticked if k in ALL_TRANSITIONS and (has_plane or k != "flyby") and _available(k)]
+    pool = [k for k in ticked if k in ALL_TRANSITIONS and (has_plane or k != "flyby")]
     return random.choice(pool) if pool else "flap"
 
 
@@ -689,10 +622,6 @@ def run_transition(kind, group, plane):
         display.auto_refresh = False
         if kind == "flyby":
             run_flyby(*plane)
-        elif kind == "radar":
-            run_radar()
-        elif kind == "slide":
-            run_slide(group)
         elif kind == "dissolve":
             run_dissolve()
     except Exception as e:  # noqa: BLE001 - a broken animation must never stop the display
@@ -890,16 +819,44 @@ def _ip_of(host):
     return esp.get_host_by_name(host)
 
 
-def http_get_json(url, timeout=4):
-    """GET an http:// URL and return the parsed JSON body. Raises on any failure."""
+_CL = b"content-length:"
+
+
+def _content_length(buf, end):
+    """Content-Length from the reply headers in buf[:end], read in place (no copies), or None."""
+    i = 0
+    while i < end:
+        if buf[i] == 10:  # start of a header line
+            j = 0
+            while j < 15 and (buf[i + 1 + j] | 32) == _CL[j]:  # | 32: lower case
+                j += 1
+            if j == 15:
+                k, n = i + 16, 0
+                while k < end and buf[k] == 32:
+                    k += 1
+                while k < end and 48 <= buf[k] <= 57:
+                    n = n * 10 + buf[k] - 48
+                    k += 1
+                return n
+        i += 1
+    return None
+
+
+def http_get_json(url, query=(), timeout=4):
+    """GET an http:// URL (plus `query`, sent piece by piece) and return the parsed JSON body.
+    Raises on any failure. Sent in small pieces rather than one long string: once the memory is
+    in small fragments, a 250-byte string can fail where ten 25-byte ones don't."""
     host, _, path = url[7:].partition("/")
     host, _, port = host.partition(":")
     buf = _http_buf
     sock = esp.get_socket()
     try:
         esp.socket_connect(sock, _ip_of(host), int(port or 80), conn_mode=esp.TCP_MODE)
-        esp.socket_write(sock, ("GET /%s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n"
-                                % (path, host)).encode())
+        esp.socket_write(sock, b"GET /")
+        esp.socket_write(sock, path.encode())
+        for piece in query:
+            esp.socket_write(sock, piece.encode())
+        esp.socket_write(sock, b" HTTP/1.0\r\nConnection: close\r\n\r\n")
         n, body, length = 0, -1, None
         end = time.monotonic() + timeout
         while length is None or n < body + length:
@@ -921,13 +878,9 @@ def http_get_json(url, timeout=4):
                 for i in range(start, n - 3):
                     if buf[i] == 13 and buf[i + 1] == 10 and buf[i + 2] == 13 and buf[i + 3] == 10:
                         body = i + 4
-                        head = bytes(buf[:i]).decode("utf-8", "ignore").lower().split("\r\n")
-                        status = head[0].split(" ")
-                        if len(status) < 2 or status[1] != "200":
-                            raise ValueError("HTTP %s" % (status[1] if len(status) > 1 else "?"))
-                        for line in head[1:]:
-                            if line.startswith("content-length:"):
-                                length = int(line[15:])
+                        if not (buf[9] == 50 and buf[10] == 48 and buf[11] == 48):  # "HTTP/1.0 200 OK"
+                            raise ValueError("HTTP %s" % bytes(buf[9:12]).decode())
+                        length = _content_length(buf, i)
                         break
         if body < 0:
             raise ValueError("no reply")
@@ -1007,21 +960,23 @@ def update_rssi():
 
 
 def quote(text):
-    out = ""
-    for ch in str(text):
-        out += ch if ch.isalpha() or ch.isdigit() or ch in "-._" else "%%%02X" % (ord(ch) & 0xFF)
-    return out
+    """URL-safe text. Anything unusual becomes "-" (it's only shown on the Pi's debug page)."""
+    return "".join(ch if ch.isalpha() or ch.isdigit() or ch in "-._" else "-" for ch in str(text)[:40])
 
 
 def report_query():
-    up = int(time.monotonic())
-    q = "portal=%s&ip=%s&rssi=%s&ssid=%s&via=%s&fails=%d&up=%d&reset=%s" % (
-        VERSION, STATE["ip"], STATE["rssi"], quote(STATE["ssid"]), STATE["via"], STATE["fails"], up, RESET_REASON)
+    """The Portal's status for the Pi's /debug page, as short pieces (sent one by one)."""
+    yield "?portal=" + VERSION
+    yield "&ip=" + STATE["ip"]
+    yield "&rssi=%s&fails=%d" % (STATE["rssi"], STATE["fails"])
+    yield "&ssid=" + quote(STATE["ssid"])
+    yield "&via=" + STATE["via"]
+    yield "&up=%d&reset=%s" % (int(time.monotonic()), RESET_REASON)
+    yield "&free=%d" % gc.mem_free()
     if TRANSITION_STATS["fps"]:
-        q += "&tfps=%d" % TRANSITION_STATS["fps"]
+        yield "&tfps=%d" % TRANSITION_STATS["fps"]
     if STATE["err"]:
-        q += "&err=" + quote(STATE["err"])
-    return q
+        yield "&err=" + quote(STATE["err"])
 
 
 mem_mark("wifi")
@@ -1138,9 +1093,11 @@ def try_urls():
         if time.monotonic() < _skip_until.get(url, 0):
             continue
         wdt.feed()
+        gc.collect()  # clear the garbage first, so the reply has the most room
         t = time.monotonic()
         try:
-            data = http_get_json(url + "?" + report_query())
+            data = http_get_json(url, report_query())
+            STATE["oom"] = 0
             if i:  # try the one that worked first next time
                 URLS = [url] + URLS[:i] + URLS[i + 1:]
             if STATE["url"] != url:
@@ -1152,6 +1109,8 @@ def try_urls():
         except Exception as e:  # noqa: BLE001 - any failure just means "try the next one"
             dbg("fetch", url, "failed after %dms:" % ((time.monotonic() - t) * 1000), e)
             last = "%s: %s" % (URL_SOURCE.get(url, "?"), e)
+            if isinstance(e, MemoryError):
+                STATE["oom"] = STATE.get("oom", 0) + 1
             if URL_SOURCE.get(url) == "hostname":
                 _skip_until[url] = time.monotonic() + 600
     STATE["fails"] += 1
@@ -1351,6 +1310,7 @@ def _pressed(btn):
 def run():
     data, last_ok, next_poll, failures, attempts = None, 0, 0, 0, 0
     show_status, force_demo, was_up, was_down = False, False, False, False
+    last_mem_log = 0
     draw_offline(time.monotonic())  # the clock page straight away, while Wi-Fi connects
     while True:
         wdt.feed()
@@ -1412,6 +1372,13 @@ def run():
                 if STATE["resets"] >= 5 and data is None:
                     restart("wifi chip keeps failing")  # whole board, as a last resort
             gc.collect()
+            if STATE.get("oom", 0) >= 6:
+                # Memory is in pieces too small for the Pi's reply: only a restart joins it up
+                # again (about 10 s, then straight back to the Pi).
+                restart("memory too fragmented: %d free" % gc.mem_free())
+            if now - last_mem_log >= 60:
+                last_mem_log = now
+                log("free memory:", gc.mem_free())
             if gc.mem_free() < LOW_MEMORY:
                 restart("low memory: %d free" % gc.mem_free())
             now = time.monotonic()

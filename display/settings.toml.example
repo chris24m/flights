@@ -17,6 +17,6 @@ DEBUG = 0
 
 # Animations when the screen changes, one picked at random each time, until the Pi says otherwise
 # (tick them on the Pi's settings page). "" = instant.
-TRANSITIONS = "flyby,radar,slide,dissolve,flap"
-# Only if the fly-by / radar / slide / dissolve animations show wrong colours on the panel:
+TRANSITIONS = "flyby,dissolve,flap"
+# Only if the fly-by / dissolve animations show wrong colours on the panel:
 # SNAP_SWAPPED = 1
