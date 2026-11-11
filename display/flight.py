@@ -28,6 +28,19 @@ from adafruit_matrixportal.matrix import Matrix
 _http_buf = bytearray(2048)  # the Pi's replies (~700 bytes); made first, while memory is in one piece
 MEM = []  # free memory after each stage of start-up, logged once the main loop starts
 
+# This file has ~350 global names, and the table that holds them doubles in size as they're added.
+# Left alone, the last doubling (~3 KB in one piece) comes at the very end of start-up, when the
+# memory is already in small pieces, and fails (MemoryError at the bottom of this file). So grow
+# it to full size now, while memory is still in one piece: add 380 dummy names, then remove them
+# (the table keeps its size, and the real names fill the free slots).
+_g = globals()
+for _i in range(380):
+    _g["_pad%d" % _i] = None
+for _i in range(380):
+    del _g["_pad%d" % _i]
+del _g, _i
+gc.collect()
+
 
 def mem_mark(stage):
     gc.collect()
@@ -63,7 +76,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # Until the Pi answers, the panel shows a clock with Wi-Fi and Pi icons (red, blinking = the problem).
 # The built-in demo plays only when the DOWN button is pressed (OFFLINE_DEMO is no longer used).
 OFFLINE_BRIGHTNESS = 0.2
-VERSION = "2026.11.11b"
+VERSION = "2026.11.11c"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
