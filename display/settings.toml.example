@@ -20,3 +20,5 @@ DEBUG = 0
 TRANSITIONS = "flyby,dissolve,flap"
 # Only if the fly-by / dissolve animations show wrong colours on the panel:
 # SNAP_SWAPPED = 1
+# Colour depth 1-6 (default 6 on the M4, 4 on the S3). Lower it if the panel flashes when the screen changes.
+# BIT_DEPTH = 4

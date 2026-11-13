@@ -82,7 +82,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # Until the Pi answers, the panel shows a clock with Wi-Fi and Pi icons (red, blinking = the problem).
 # The built-in demo plays only when the DOWN button is pressed (OFFLINE_DEMO is no longer used).
 OFFLINE_BRIGHTNESS = 0.2
-VERSION = "2026.11.11h"
+VERSION = "2026.11.13b"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -138,7 +138,11 @@ def parse_colour(text, default):
 
 # --- display setup -------------------------------------------------------------
 
-matrix = Matrix(width=64, height=32, bit_depth=6)
+# Colour depth. 6 = smoothest shading. On the S3 the whole panel can flash each time the screen
+# changes while Wi-Fi is busy (a known ESP32-S3 + RGB matrix timing problem); fewer bits makes each
+# refresh lighter, so the S3 defaults to 4. Override with BIT_DEPTH in settings.toml (1-6).
+BIT_DEPTH = int(os.getenv("BIT_DEPTH") or (4 if BIG_BOARD else 6))
+matrix = Matrix(width=64, height=32, bit_depth=BIT_DEPTH)
 display = matrix.display
 SMALL = None
 for _f in ("/fonts/flight-3x5.bdf", "/fonts/tom-thumb.bdf"):  # 3x5 pixel font, 4x6 cell (in the repo)
@@ -192,19 +196,19 @@ def set_text(lab, text, colour=None, animate=None):
     if lab.text == text:
         return
     if FLAP and (animate_now if animate is None else animate):
-        flapping[id(lab)] = [lab, text, time.monotonic()]
+        flapping[id(lab)] = [lab, text, time.monotonic(), lab.text]  # old text: unchanged letters stay put
     else:
         lab.text = text
 
 
 def tick_flaps(now):
     for key in list(flapping):
-        lab, target, start = flapping[key]
+        lab, target, start, old = flapping[key]
         t = now - start
         out = []
         done = True
         for i, ch in enumerate(target):
-            if ch == " " or t >= FLAP_SPIN + i * FLAP_STAGGER:
+            if ch == " " or (i < len(old) and old[i] == ch) or t >= FLAP_SPIN + i * FLAP_STAGGER:
                 out.append(ch)
             else:
                 out.append(FLAP_CHARS[random.randrange(len(FLAP_CHARS))])
@@ -1213,7 +1217,7 @@ try:
     RESET_REASON = str(microcontroller.cpu.reset_reason).split(".")[-1]  # e.g. POWER_ON, WATCHDOG
 except Exception:  # noqa: BLE001
     RESET_REASON = "UNKNOWN"
-log("flight display", VERSION, "on", BOARD_KIND, "starting; reset reason:", RESET_REASON, "debug:", DEBUG, "free:", gc.mem_free())
+log("flight display", VERSION, "on", BOARD_KIND, "bit depth", BIT_DEPTH, "starting; reset reason:", RESET_REASON, "debug:", DEBUG, "free:", gc.mem_free())
 try:
     n = microcontroller.nvm[256]
     if 0 < n <= 120:

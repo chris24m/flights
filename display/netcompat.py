@@ -29,6 +29,10 @@ class NativeWifi:
         self._socks = {}   # number -> [socket, pending bytes, closed by the other end, is UDP]
         self._next = 0
         self._rx = bytearray(512)
+        try:  # keep the radio awake: its power-saving naps upset the LED panel's timing
+            wifi.radio.power_management = wifi.PowerManagement.NONE
+        except (AttributeError, NameError):
+            pass
 
     # --- connection ----------------------------------------------------------------
     @property
