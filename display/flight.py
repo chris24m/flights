@@ -82,7 +82,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # Until the Pi answers, the panel shows a clock with Wi-Fi and Pi icons (red, blinking = the problem).
 # The built-in demo plays only when the DOWN button is pressed (OFFLINE_DEMO is no longer used).
 OFFLINE_BRIGHTNESS = 0.2
-VERSION = "2026.11.11h"
+VERSION = "2026.11.13a"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -192,19 +192,19 @@ def set_text(lab, text, colour=None, animate=None):
     if lab.text == text:
         return
     if FLAP and (animate_now if animate is None else animate):
-        flapping[id(lab)] = [lab, text, time.monotonic()]
+        flapping[id(lab)] = [lab, text, time.monotonic(), lab.text]  # old text: unchanged letters stay put
     else:
         lab.text = text
 
 
 def tick_flaps(now):
     for key in list(flapping):
-        lab, target, start = flapping[key]
+        lab, target, start, old = flapping[key]
         t = now - start
         out = []
         done = True
         for i, ch in enumerate(target):
-            if ch == " " or t >= FLAP_SPIN + i * FLAP_STAGGER:
+            if ch == " " or (i < len(old) and old[i] == ch) or t >= FLAP_SPIN + i * FLAP_STAGGER:
                 out.append(ch)
             else:
                 out.append(FLAP_CHARS[random.randrange(len(FLAP_CHARS))])
