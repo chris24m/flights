@@ -96,16 +96,29 @@ def card(type_code):
 SPRITE = {}
 for _t in ("A388", "B744", "B748", "A400", "C17", "A124", "B52", "LANC", "B17", "C130", "A343", "A346"):
     SPRITE[_t] = "quad"
-for _t in ("SPIT", "HURI", "P51", "DH82", "T6", "C152", "C172", "PA28", "SR22", "DA40", "DC3"):
+for _t in ("SPIT", "HURI", "P51", "DH82", "T6", "C152", "C172", "PA28", "SR22", "DA40", "DC3",
+           "C150", "C162", "C170", "C177", "C182", "C206", "C210", "P28A", "P28B", "P28R", "P28T", "PA18",
+           "PA32", "PA34", "PA38", "PA44", "PA46", "BE33", "BE35", "BE36", "BE58", "SR20", "DA42", "DA62",
+           "DR40", "AA5", "TB10", "TB20", "C42", "EV97", "RV7", "RV8", "RV9", "J3", "CUB", "TAMP", "PC12",
+           "TBM7", "TBM8", "TBM9", "BN2P", "DHC6", "G115", "TUTR", "SIRA", "PRES", "P68"):
     SPRITE[_t] = "prop"
 for _t in ("EUFI", "F35", "HAWK", "TOR", "F15", "F16", "F18"):
     SPRITE[_t] = "fighter"
-for _t in ("EC35", "EC45", "A109", "A169", "A189", "S92", "H47", "AS65", "EC30", "R44", "R22", "B06", "AW39"):
+for _t in ("EC35", "EC45", "A109", "A169", "A189", "S92", "H47", "AS65", "EC30", "R44", "R22", "B06", "AW39",
+           "A139", "A149", "AS50", "AS55", "AS32", "AS3B", "B407", "B429", "B505", "EC20", "EC55", "EC75",
+           "H160", "R66", "S76", "EH10", "LYNX", "NH90", "PUMA", "GAZL", "H60", "MD52", "MD60", "B412",
+           "A119", "EC25", "EC30", "BK17", "WILD", "MRLN", "A129"):
     SPRITE[_t] = "heli"
 
+# ADS-B emitter category, for types we don't know (or when there's no type at all).
+SPRITE_BY_CATEGORY = {"A1": "prop", "A7": "heli", "B1": "prop", "B4": "prop", "B6": "prop"}
 
-def sprite_for(type_code):
-    return SPRITE.get((type_code or "").upper(), "twin")
+
+def sprite_for(type_code, category=""):
+    """twin / quad / prop / fighter / heli: from the type if we know it, else the ADS-B category."""
+    return (SPRITE.get((type_code or "").upper())
+            or SPRITE_BY_CATEGORY.get((category or "").upper())
+            or "twin")
 
 
 # Name for the type line on the flight screen (11 characters max: it sits beside the logo).
@@ -119,7 +132,7 @@ PANEL_TYPE = {
     "E170": "EMBRAER 170", "E175": "EMBRAER 175", "E190": "EMBRAER 190", "E195": "EMBRAER 195",
     "E290": "E190-E2", "E295": "E195-E2", "AT75": "ATR 72", "AT76": "ATR 72", "AT45": "ATR 42",
     "DH8D": "DASH 8 Q400", "BCS1": "A220-100", "BCS3": "A220-300", "CRJ9": "CRJ900", "CRJ7": "CRJ700",
-    "C152": "CESSNA 152", "C172": "CESSNA 172", "C182": "CESSNA 182", "PA28": "PIPER PA-28",
+    "C152": "CESSNA 152", "C172": "CESSNA 172", "C182": "CESSNA 182", "PA28": "PIPER PA-28", "P28A": "PIPER PA-28", "P28R": "PIPER ARROW",
     "SR22": "CIRRUS SR22", "DA40": "DIAMOND 40", "DA42": "DIAMOND 42",
     "EC35": "H135", "EC45": "H145", "EC30": "H130", "A109": "AW109", "A169": "AW169", "A189": "AW189",
     "AW39": "AW139", "S92": "S-92", "R44": "ROBINSON 44", "R22": "ROBINSON 22", "AS65": "DAUPHIN",
