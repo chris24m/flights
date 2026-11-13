@@ -143,7 +143,7 @@ class Service:
             "dist_txt": fmt_dist(ac.dist_km, units),
             "squawk": ac.squawk,
             "alert": pick.alert,
-            "sprite": sprite_for(ac_type),
+            "sprite": sprite_for(ac_type, ac.category),
         }, airline_name, ac_type
 
     def build(self, raw, now):

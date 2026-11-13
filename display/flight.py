@@ -82,7 +82,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # Until the Pi answers, the panel shows a clock with Wi-Fi and Pi icons (red, blinking = the problem).
 # The built-in demo plays only when the DOWN button is pressed (OFFLINE_DEMO is no longer used).
 OFFLINE_BRIGHTNESS = 0.2
-VERSION = "2026.11.13c"
+VERSION = "2026.11.13d"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -227,29 +227,72 @@ def solid(w, h, colour):
     return tg, pal
 
 
-# Fallback plane icon (16x16), used when there's no /logos/<ICAO>.bmp
-PLANE = (
-    "................",
-    ".......##.......",
-    ".......##.......",
-    ".......##.......",
-    "......####......",
-    "....########....",
-    "..############..",
-    ".######..######.",
-    "##.....##.....##",
-    ".......##.......",
-    ".......##.......",
-    "......####......",
-    ".....######.....",
-    "................",
-    "................",
-    "................",
-)
-plane_bmp = displayio.Bitmap(16, 16, 2)
-for yy, row in enumerate(PLANE):
-    for xx, ch in enumerate(row):
-        plane_bmp[xx, yy] = 1 if ch == "#" else 0
+# Fallback icons (16x16), used when there's no /logos/<ICAO>.bmp: an airliner,
+# a light aircraft or a helicopter, from the "sprite" kind the Pi sends.
+ICON_ART = {
+    "plane": (
+        "................",
+        ".......##.......",
+        ".......##.......",
+        ".......##.......",
+        "......####......",
+        "....########....",
+        "..############..",
+        ".######..######.",
+        "##.....##.....##",
+        ".......##.......",
+        ".......##.......",
+        "......####......",
+        ".....######.....",
+        "................",
+        "................",
+        "................",
+    ),
+    "prop": (
+        "................",
+        "....########....",
+        ".......##.......",
+        "......####......",
+        "################",
+        "################",
+        "......####......",
+        ".......##.......",
+        ".......##.......",
+        ".......##.......",
+        ".......##.......",
+        "....########....",
+        ".......##.......",
+        "................",
+        "................",
+        "................",
+    ),
+    "heli": (
+        "................",
+        "................",
+        "................",
+        ".##############.",
+        ".......#........",
+        ".....#####.....#",
+        "...########...##",
+        "..#############.",
+        "..##########...#",
+        "...########.....",
+        ".....#...#......",
+        "...#########....",
+        "................",
+        "................",
+        "................",
+        "................",
+    ),
+}
+ICONS = {}
+for _name, _art in ICON_ART.items():
+    _bmp = displayio.Bitmap(16, 16, 2)
+    for yy, row in enumerate(_art):
+        for xx, ch in enumerate(row):
+            _bmp[xx, yy] = 1 if ch == "#" else 0
+    ICONS[_name] = _bmp
+del ICON_ART
 plane_pal = displayio.Palette(2)
 plane_pal.make_transparent(0)
 
@@ -289,8 +332,9 @@ class Logo:
         self.base = []
         self.pal = None
 
-    def show(self, icao, colour):
-        key = icao or "-"
+    def show(self, icao, colour, kind=None):
+        kind = kind if kind in ("prop", "heli") else "plane"
+        key = (icao, kind)
         if key != self.key:
             self.key = key
             while len(self.group):
@@ -307,7 +351,7 @@ class Logo:
                 except (OSError, ValueError, TypeError, AttributeError, IndexError):
                     bmp = None
             if bmp is None:
-                bmp, pal = plane_bmp, plane_pal
+                bmp, pal = ICONS[kind], plane_pal
                 self.base = [None, colour or GREY]
             else:
                 self.base = [pal[i] for i in range(len(pal))]
@@ -862,7 +906,7 @@ def draw(d, now):
     mode = d.get("mode")
     if mode == "flight":
         col = parse_colour(d.get("col"), WHITE)
-        logo.show(d.get("airline"), col)
+        logo.show(d.get("airline"), col, d.get("sprite"))
         set_text(f_cs, d.get("callsign"), col)
         set_text(f_route, d.get("route"))
         set_text(f_type, d.get("type"))

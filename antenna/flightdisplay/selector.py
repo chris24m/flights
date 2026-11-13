@@ -46,6 +46,7 @@ class Aircraft:
     squawk: str = None
     type: str = None         # ICAO type from the readsb database, e.g. A320
     db_flags: int = 0
+    category: str = ""       # ADS-B emitter category, e.g. A1 light, A7 rotorcraft
     seen: float = 0.0        # seconds since last message
     seen_pos: float = None   # seconds since last position
     dist_km: float = None
@@ -75,6 +76,7 @@ class Aircraft:
             squawk=d.get("squawk"),
             type=d.get("t"),
             db_flags=int(d.get("dbFlags", 0) or 0),
+            category=str(d.get("category") or "").upper(),
             seen=float(d.get("seen", 0) or 0),
             seen_pos=d.get("seen_pos"),
         )
