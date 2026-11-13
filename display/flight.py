@@ -82,7 +82,7 @@ SNAP_SWAPPED = int(os.getenv("SNAP_SWAPPED") or 0)
 # Until the Pi answers, the panel shows a clock with Wi-Fi and Pi icons (red, blinking = the problem).
 # The built-in demo plays only when the DOWN button is pressed (OFFLINE_DEMO is no longer used).
 OFFLINE_BRIGHTNESS = 0.2
-VERSION = "2026.11.13b"
+VERSION = "2026.11.13c"
 
 # What the Portal knows about its own health. Sent to the Pi with every poll (see report_query),
 # so the Pi's /debug page shows the Portal's state even though the Portal itself can't be reached remotely.
@@ -254,6 +254,31 @@ plane_pal = displayio.Palette(2)
 plane_pal.make_transparent(0)
 
 
+def _load_bmp(path):
+    """An 8-bit indexed BMP (the logos) into a Bitmap + Palette in memory."""
+    with open(path, "rb") as f:
+        data = f.read()
+    off = int.from_bytes(data[10:14], "little")
+    hsize = int.from_bytes(data[14:18], "little")
+    w = int.from_bytes(data[18:22], "little")
+    h = int.from_bytes(data[22:26], "little")
+    if int.from_bytes(data[28:30], "little") != 8:
+        raise ValueError("not an 8-bit BMP")
+    ncol = int.from_bytes(data[46:50], "little") or 256
+    pal = displayio.Palette(ncol)
+    p = 14 + hsize
+    for i in range(ncol):
+        b, g, r = data[p + 4 * i], data[p + 4 * i + 1], data[p + 4 * i + 2]
+        pal[i] = (r << 16) | (g << 8) | b
+    bmp = displayio.Bitmap(w, abs(h), ncol)
+    stride = (w + 3) & ~3
+    for y in range(abs(h)):
+        row = off + (abs(h) - 1 - y if h > 0 else y) * stride  # BMP rows go bottom-up
+        for x in range(w):
+            bmp[x, y] = data[row + x]
+    return bmp, pal
+
+
 class Logo:
     """16x16 airline logo in the top-left; dims by rescaling its palette."""
 
@@ -272,11 +297,14 @@ class Logo:
                 self.group.pop()
             bmp = None
             if icao:
-                try:  # read from flash as it's drawn, so a logo costs almost no memory
-                    bmp = displayio.OnDiskBitmap("/logos/%s.bmp" % icao)
-                    pal = bmp.pixel_shader
+                try:
+                    if BIG_BOARD:  # S3: into memory once, since reading flash while drawing makes the panel flash
+                        bmp, pal = _load_bmp("/logos/%s.bmp" % icao)
+                    else:  # M4: read from flash as it's drawn, so a logo costs almost no memory
+                        bmp = displayio.OnDiskBitmap("/logos/%s.bmp" % icao)
+                        pal = bmp.pixel_shader
                     len(pal)  # a palette (indexed BMP), so it can be dimmed
-                except (OSError, ValueError, TypeError, AttributeError):
+                except (OSError, ValueError, TypeError, AttributeError, IndexError):
                     bmp = None
             if bmp is None:
                 bmp, pal = plane_bmp, plane_pal
@@ -1080,7 +1108,18 @@ mem_mark("wifi")
 # Order tried: the address that last worked (kept across power cuts in non-volatile memory),
 # DISPLAY_URLS from settings.toml, the Pi's hostname, then listening for the Pi's broadcast.
 
+_saved_url = False  # what's in non-volatile memory, read once (False = not read yet): on the S3
+#                     every read touches flash, which makes the panel flash
+
+
 def load_saved_url():
+    global _saved_url
+    if _saved_url is False:
+        _saved_url = _read_saved_url()
+    return _saved_url
+
+
+def _read_saved_url():
     try:
         n = microcontroller.nvm[0]
         if 0 < n < 200:
@@ -1093,10 +1132,12 @@ def load_saved_url():
 
 
 def save_url(url):
+    global _saved_url
     try:
         b = url.encode()
         if load_saved_url() != url and len(b) < 200:
             microcontroller.nvm[0:1 + len(b)] = bytes([len(b)]) + b
+            _saved_url = url
     except Exception as e:  # noqa: BLE001
         print("couldn't save url:", e)
 
